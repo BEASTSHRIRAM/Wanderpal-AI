@@ -6,9 +6,6 @@ from pydantic import BaseModel
 import motor.motor_asyncio
 import os
 from dotenv import load_dotenv
-
-
-# Load environment variables from .env file
 load_dotenv()
 MONGODB_URL = os.getenv("MONGODB_URL")
 DB_NAME = os.getenv("DB_NAME")
@@ -33,8 +30,6 @@ class SignUpRequest(BaseModel):
 	email: str
 	password: str
 
-
-# Sign in endpoint with real authentication
 @app.post("/signin")
 async def signin(data: SignInRequest):
 	if not (data.email and data.password):
