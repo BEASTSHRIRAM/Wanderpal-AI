@@ -1,0 +1,135 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Wanderpal Design System - Extreme Modern UI */
+/* All colors MUST be HSL for proper theming */
+
+@layer base {
+  :root {
+    /* Core Dark Theme */
+    --background: 224 71% 4%;
+    --foreground: 213 31% 91%;
+    
+    /* Card System */
+    --card: 224 71% 6%;
+    --card-foreground: 213 31% 91%;
+    --card-hover: 224 71% 8%;
+    
+    /* Popover */
+    --popover: 224 71% 5%;
+    --popover-foreground: 213 31% 91%;
+    
+    /* Electric Blue Primary */
+    --primary: 217 91% 60%;
+    --primary-foreground: 0 0% 100%;
+    --primary-glow: 217 91% 70%;
+    
+    /* Vibrant Purple Secondary */
+    --secondary: 262 83% 58%;
+    --secondary-foreground: 0 0% 100%;
+    --secondary-glow: 262 83% 68%;
+    
+    /* Muted Tones */
+    --muted: 215 28% 17%;
+    --muted-foreground: 217 11% 65%;
+    
+    /* Electric Accent */
+    --accent: 217 91% 60%;
+    --accent-foreground: 0 0% 100%;
+    --accent-glow: 217 91% 70%;
+    
+    /* Status Colors */
+    --destructive: 0 63% 31%;
+    --destructive-foreground: 210 40% 98%;
+    
+    /* Borders & Inputs */
+    --border: 215 28% 17%;
+    --input: 215 28% 17%;
+    --input-focus: 217 91% 60%;
+    --ring: 217 91% 60%;
+    
+    /* Gradient System */
+    --gradient-primary: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--primary-glow)));
+    --gradient-secondary: linear-gradient(135deg, hsl(var(--secondary)), hsl(var(--secondary-glow)));
+    --gradient-hero: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--secondary)));
+    --gradient-card: linear-gradient(145deg, hsl(var(--card)), hsl(var(--card-hover)));
+    
+    /* Shadows & Effects */
+    --shadow-premium: 0 25px 50px -12px hsl(var(--primary) / 0.25);
+    --shadow-card: 0 10px 25px -3px hsl(0 0% 0% / 0.3);
+    --shadow-glow: 0 0 40px hsl(var(--primary-glow) / 0.3);
+    
+    /* Animation Variables */
+    --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-bounce: all 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+
+    --radius: 0.75rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    background-image: radial-gradient(circle at 1px 1px, hsl(var(--muted-foreground) / 0.15) 1px, transparent 0);
+    background-size: 20px 20px;
+  }
+}
+
+@layer components {
+  /* Premium Button Variants */
+  .btn-gradient {
+    @apply bg-gradient-to-r from-primary to-secondary text-white shadow-lg hover:shadow-xl;
+    transition: var(--transition-smooth);
+  }
+  
+  .btn-gradient:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-premium);
+  }
+  
+  /* Card Components */
+  .card-premium {
+    @apply bg-card border border-border rounded-xl p-6;
+    background: var(--gradient-card);
+    box-shadow: var(--shadow-card);
+    transition: var(--transition-smooth);
+  }
+  
+  .card-premium:hover {
+    @apply border-primary/50;
+    transform: translateY(-4px);
+    box-shadow: var(--shadow-premium);
+  }
+  
+  /* Agent Working Animation */
+  .agent-pulse {
+    animation: pulse-glow 2s ease-in-out infinite;
+  }
+  
+  @keyframes pulse-glow {
+    0%, 100% {
+      opacity: 0.5;
+      transform: scale(1);
+    }
+    50% {
+      opacity: 1;
+      transform: scale(1.05);
+    }
+  }
+  
+  /* Form Focus Effects */
+  .input-focus {
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    @apply border-2 border-border;
+  }
+  
+  .input-focus:focus {
+    @apply border-primary ring-4 ring-primary/20;
+    box-shadow: 0 0 0 3px hsl(var(--primary) / 0.1);
+  }
+}
