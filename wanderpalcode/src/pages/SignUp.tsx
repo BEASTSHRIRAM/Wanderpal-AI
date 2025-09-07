@@ -81,6 +81,15 @@ const SignUp = () => {
         </div>
 
         <Card className="card-premium">
+          <div className="mb-2">
+            <a
+              href="http://localhost:8080/"
+              className="inline-flex items-center gap-1 text-sm text-primary hover:text-primary-glow transition-colors font-medium px-2 py-1 rounded-md border border-primary/30 bg-primary/5 hover:bg-primary/10 focus:outline-none focus:ring-2 focus:ring-primary/30"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+              Back
+            </a>
+          </div>
           <CardHeader className="space-y-1">
             <CardTitle className="text-2xl font-bold text-center">Sign Up</CardTitle>
             <CardDescription className="text-center">

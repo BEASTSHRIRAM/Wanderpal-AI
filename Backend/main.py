@@ -33,12 +33,20 @@ class SignUpRequest(BaseModel):
 	email: str
 	password: str
 
-#sign in page hemya
+
+# Sign in endpoint with real authentication
 @app.post("/signin")
 async def signin(data: SignInRequest):
-	if data.email and data.password:
-		return {"message": "Sign in successful", "email": data.email}
-	raise HTTPException(status_code=400, detail="Invalid credentials")
+	if not (data.email and data.password):
+		raise HTTPException(status_code=400, detail="Invalid credentials")
+
+	user = await db["users"].find_one({"email": data.email})
+	if not user:
+		raise HTTPException(status_code=400, detail="User not found")
+	if user.get("password") != data.password:
+		raise HTTPException(status_code=400, detail="Wrong password")
+
+	return {"message": "Sign in successful", "email": data.email}
 
 
 #signup page hemya
