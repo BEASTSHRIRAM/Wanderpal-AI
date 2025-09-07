@@ -2,14 +2,18 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+
 import motor.motor_asyncio
 import os
+from dotenv import load_dotenv
 
 
-
-MONGODB_URL = os.getenv("MONGODB_URL", "URI_DAAL_BC")
+# Load environment variables from .env file
+load_dotenv()
+MONGODB_URL = os.getenv("MONGODB_URL")
+DB_NAME = os.getenv("DB_NAME")
 client = motor.motor_asyncio.AsyncIOMotorClient(MONGODB_URL)
-db = client["DB_NAME_DAAL_CHUTIYE"]  
+db = client[DB_NAME]
 
 app = FastAPI()
 
