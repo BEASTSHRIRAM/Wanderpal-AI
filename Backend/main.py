@@ -2,11 +2,11 @@ from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
-
+from time import time
 import motor.motor_asyncio
 import os
 from dotenv import load_dotenv
-
+import random
 # Security and JWT imports
 from passlib.context import CryptContext
 from datetime import datetime, timedelta, timezone
@@ -72,12 +72,24 @@ class SignInRequest(BaseModel):
     password: str
 
 class SignUpRequest(BaseModel):
+    first_name: str
+    last_name: str
+    phone: str
     email: str
     password: str
+    location: Optional[str] = None
 
 class Token(BaseModel):
     access_token: str
     token_type: str
+
+class UserUpdateRequest(BaseModel):
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    location: Optional[str] = None
+    notifications: Optional[dict] = None
 
 
 # --- API Endpoints ---
@@ -106,13 +118,13 @@ async def signin(data: SignInRequest):
     return {"access_token": access_token, "token_type": "bearer"}
 
 
-@app.post("/signup")
+@app.post("/signup", response_model=Token)
 async def signup(data: SignUpRequest):
     """
-    Handles new user registration. Hashes the password before storing.
+    Handles new user registration. Hashes the password before storing and returns JWT token.
     """
-    if not (data.email and data.password):
-        raise HTTPException(status_code=400, detail="Invalid data")
+    if not (data.first_name and data.last_name and data.phone and data.email and data.password):
+        raise HTTPException(status_code=400, detail="All fields are required")
 
     existing = await db["users"].find_one({"email": data.email})
     if existing:
@@ -120,7 +132,94 @@ async def signup(data: SignUpRequest):
 
     # Hash the password before creating the user object
     hashed_password = get_password_hash(data.password)
-    user = {"email": data.email, "password": hashed_password}
-
+    user = {
+        "first_name": data.first_name,
+        "last_name": data.last_name,
+        "phone": data.phone,
+        "email": data.email,
+        "password": hashed_password,
+        "location": data.location,
+        "notifications": {
+            "deals": True,
+            "recommendations" : True,
+            "bookingUpdates": True,
+            "marketing": False,
+        },
+        "created_at": int(time())
+    }
+    
     await db["users"].insert_one(user)
-    return {"message": "Sign up successful", "email": data.email}
+    
+    # Create the JWT access token for the new user
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": user["email"]}, expires_delta=access_token_expires
+    )
+
+    return {"access_token": access_token, "token_type": "bearer"}
+
+
+@app.get("/profile/{email}")
+async def get_user(email: str):
+    """
+    Fetches user data by email for profile display.
+    """
+    user = await db["users"].find_one({"email": email})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Remove password from response for security
+    user.pop("password", None)
+    user.pop("_id", None)  # Remove MongoDB ObjectId
+    
+    return user
+
+@app.put("/profile/{email}")
+async def update_user(email: str, data: UserUpdateRequest):
+    """
+    Updates user profile information.
+    """
+    user = await db["users"].find_one({"email": email})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Build update data, only include fields that were provided
+    update_data = {}
+    if data.first_name is not None:
+        update_data["first_name"] = data.first_name
+    if data.last_name is not None:
+        update_data["last_name"] = data.last_name
+    if data.phone is not None:
+        update_data["phone"] = data.phone
+    if data.email is not None:
+        update_data["email"] = data.email
+    if data.location is not None:
+        update_data["location"] = data.location
+    if data.notifications is not None:
+        update_data["notifications"] = data.notifications
+    
+    if not update_data:
+        raise HTTPException(status_code=400, detail="No valid fields to update")
+    
+    # Update the user in the database
+    await db["users"].update_one({"email": email}, {"$set": update_data})
+    
+    return {"message": "User updated successfully", "email": email}
+
+@app.get("/users/{email}/trips")
+async def get_user_trips(email: str):
+    """
+    Fetches all trips for a specific user.
+    """
+    user = await db["users"].find_one({"email": email})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Fetch trips associated with this user
+    trips = await db["trips"].find({"user_email": email}).to_list(length=None)
+    
+    # Remove MongoDB ObjectIds for clean JSON response
+    for trip in trips:
+        trip.pop("_id", None)
+    
+    return {"trips": trips}

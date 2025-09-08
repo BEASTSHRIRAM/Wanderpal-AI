@@ -23,19 +23,15 @@ import {
 
 const Profile = () => {
   const navigate = useNavigate();
-  useEffect(() => {
-    const token = localStorage.getItem('token');
-    if (!token) {
-      navigate('/signin');
-    }
-  }, [navigate]);
   const [isEditing, setIsEditing] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [formData, setFormData] = useState({
-    firstName: 'John',
-    lastName: 'Doe',
-    email: 'john@example.com',
-    phone: '+1 (555) 123-4567',
-    location: 'San Francisco, CA',
+    firstName: '',
+    lastName: '',
+    email: '',
+    phone: '',
+    location: '',
     notifications: {
       deals: true,
       recommendations: true,
@@ -43,6 +39,61 @@ const Profile = () => {
       marketing: false,
     }
   });
+
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      navigate('/signin');
+      return;
+    }
+    fetchUserData();
+  }, [navigate]);
+
+  const fetchUserData = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) return;
+
+      // Decode JWT to get user email
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      const userEmail = payload.sub;
+
+      const response = await fetch(`http://localhost:8000/profile/${userEmail}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          localStorage.removeItem('token');
+          navigate('/signin');
+          return;
+        }
+        throw new Error('Failed to fetch user data');
+      }
+
+      const userData = await response.json();
+      setFormData({
+        firstName: userData.first_name || '',
+        lastName: userData.last_name || '',
+        email: userData.email || '',
+        phone: userData.phone || '',
+        location: userData.location || '',
+        notifications: userData.notifications || {
+          deals: true,
+          recommendations: true,
+          bookingUpdates: true,
+          marketing: false,
+        }
+      });
+    } catch (error) {
+      setError('Failed to load profile data');
+      console.error('Error fetching user data:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const handleInputChange = (field: string, value: string) => {
     setFormData(prev => ({
@@ -61,9 +112,41 @@ const Profile = () => {
     }));
   };
 
-  const handleSave = () => {
-    setIsEditing(false);
-    // Save logic would go here
+  const handleSave = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) return;
+
+      // Decode JWT to get user email
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      const userEmail = payload.sub;
+
+      const response = await fetch(`http://localhost:8000/profile/${userEmail}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          first_name: formData.firstName,
+          last_name: formData.lastName,
+          phone: formData.phone,
+          email: formData.email,
+          location: formData.location,
+          notifications: formData.notifications
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to update profile');
+      }
+
+      setIsEditing(false);
+      setError(null);
+    } catch (error) {
+      setError('Failed to save changes');
+      console.error('Error updating profile:', error);
+    }
   };
 
   return (
@@ -79,7 +162,23 @@ const Profile = () => {
           </p>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        {/* Error Display */}
+        {error && (
+          <div className="mb-6 flex items-center justify-center">
+            <span className="inline-flex items-center gap-2 px-3 py-2 rounded-md bg-red-100 text-red-700 border border-red-300 shadow-sm animate-fade-in text-sm font-semibold">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12c0 4.97-4.03 9-9 9s-9-4.03-9-9 4.03-9 9-9 9 4.03 9 9z" /></svg>
+              {error}
+            </span>
+          </div>
+        )}
+
+        {/* Loading State */}
+        {isLoading ? (
+          <div className="flex items-center justify-center py-12">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Profile Card */}
           <div className="lg:col-span-1">
             <Card className="card-premium animate-scale-in">
@@ -336,6 +435,7 @@ const Profile = () => {
             </Card>
           </div>
         </div>
+        )}
       </div>
     </div>
   );
