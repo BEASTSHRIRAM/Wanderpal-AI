@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -21,6 +22,13 @@ import {
 } from 'lucide-react';
 
 const Profile = () => {
+  const navigate = useNavigate();
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      navigate('/signin');
+    }
+  }, [navigate]);
   const [isEditing, setIsEditing] = useState(false);
   const [formData, setFormData] = useState({
     firstName: 'John',
@@ -313,9 +321,16 @@ const Profile = () => {
                   <CreditCard className="h-4 w-4 mr-2" />
                   Payment Methods
                 </Button>
-                <Button variant="outline" className="w-full justify-start text-destructive hover:text-destructive">
+                <Button
+                  variant="outline"
+                  className="w-full justify-start text-destructive hover:text-destructive"
+                  onClick={() => {
+                    localStorage.removeItem('token');
+                    navigate('/');
+                  }}
+                >
                   <User className="h-4 w-4 mr-2" />
-                  Delete Account
+                  Sign out
                 </Button>
               </CardContent>
             </Card>

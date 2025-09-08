@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
@@ -58,7 +59,7 @@ const SignUp = () => {
         title: "Account created successfully!",
         description: "Welcome to Wanderpal. You can now start exploring amazing destinations.",
       });
-      navigate('/search');
+  navigate('/chat');
     } catch (error) {
       toast({
         title: 'Network error',
