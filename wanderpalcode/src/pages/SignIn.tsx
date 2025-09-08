@@ -36,7 +36,14 @@ const SignIn = () => {
         setIsLoading(false);
         return;
       }
-      navigate('/search');
+      // Store JWT token in localStorage
+      const data = await response.json();
+      if (data.access_token) {
+        localStorage.setItem('token', data.access_token);
+        navigate('/home');
+      } else {
+        setError('Sign in failed: No token received.');
+      }
     } catch (error) {
       setError('Network error. Please try again.');
     } finally {

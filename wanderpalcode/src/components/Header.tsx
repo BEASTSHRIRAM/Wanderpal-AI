@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
@@ -18,13 +18,14 @@ import {
 const Header = () => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const location = useLocation();
+  const navigate = useNavigate();
 
   const navigation = [
-    { name: 'Home', href: '/', icon: Home },
-    { name: 'Search Hotels', href: '/search', icon: Search },
+    { name: 'Home', href: '/home', icon: Home },
+  // { name: 'Search Hotels', href: '/search', icon: Search },
     { name: 'AI Chat', href: '/chat', icon: MessageSquare },
     { name: 'My Trips', href: '/trips', icon: BookOpen },
-    { name: 'Profile', href: '/profile', icon: User },
+    // { name: 'Profile', href: '/profile', icon: User },
   ];
 
   const toggleMobileMenu = () => {
@@ -39,7 +40,7 @@ const Header = () => {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             {/* Logo */}
-            <Link to="/" className="flex items-center space-x-2 group">
+            <Link to="/home" className="flex items-center space-x-2 group">
               <div className="w-8 h-8 bg-gradient-hero rounded-lg flex items-center justify-center">
                 <Sparkles className="h-5 w-5 text-white" />
               </div>
@@ -59,6 +60,13 @@ const Header = () => {
                       ? 'bg-primary/10 text-primary'
                       : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
                   }`}
+                  onClick={e => {
+                    const token = localStorage.getItem('token');
+                    if (!token) {
+                      e.preventDefault();
+                      navigate('/signin');
+                    }
+                  }}
                 >
                   <item.icon className="h-4 w-4" />
                   <span className="text-sm font-medium">{item.name}</span>
