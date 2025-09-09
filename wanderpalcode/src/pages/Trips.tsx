@@ -60,7 +60,29 @@ const Trips = () => {
   const [loadingTrending, setLoadingTrending] = useState(false);
   const [trendingError, setTrendingError] = useState<string | null>(null);
 
-  // Fetch trending places when Trending tab is active, with caching by location
+
+
+  // Helper to extract email from JWT
+  function getEmailFromToken(token: string | null): string | null {
+    if (!token) return null;
+    try {
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      return payload.sub || payload.email || null;
+    } catch {
+      return null;
+    }
+  }
+  // Clear trending cache on user change
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    const email = getEmailFromToken(token);
+    if (email) {
+      // Use per-user cache key
+      localStorage.removeItem(`trending_places_cache_${email}`);
+    }
+  }, [localStorage.getItem('token')]);
+
+  // Fetch trending places when Trending tab is active, with per-user caching by location
   useEffect(() => {
     if (activeTab !== 'trending') return;
     setTrendingError(null);
@@ -70,10 +92,12 @@ const Trips = () => {
       setLoadingTrending(false);
       return;
     }
+    const token = localStorage.getItem('token');
+    const email = getEmailFromToken(token);
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         const { latitude, longitude } = pos.coords;
-        const cacheKey = 'trending_places_cache';
+        const cacheKey = email ? `trending_places_cache_${email}` : 'trending_places_cache';
         const cacheRadius = 10000; // meters, must match backend default
         const cached = localStorage.getItem(cacheKey);
         let useCache = false;
@@ -116,22 +140,13 @@ const Trips = () => {
         setLoadingTrending(false);
       }
     );
-  }, [activeTab]);
+  }, [activeTab, localStorage.getItem('token')]);
 
   const [trips, setTrips] = useState<Trip[]>([]);
   const [loadingTrips, setLoadingTrips] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
 
-  // Helper to extract email from JWT
-  function getEmailFromToken(token: string | null): string | null {
-    if (!token) return null;
-    try {
-      const payload = JSON.parse(atob(token.split('.')[1]));
-      return payload.sub || payload.email || null;
-    } catch {
-      return null;
-    }
-  }
+
 
   useEffect(() => {
     const token = localStorage.getItem('token');
