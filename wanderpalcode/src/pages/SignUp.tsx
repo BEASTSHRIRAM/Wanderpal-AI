@@ -8,31 +8,34 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { useToast } from '@/hooks/use-toast';
 
 const SignUp = () => {
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [location, setLocation] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
   const { toast } = useToast();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError(null);
+
+    if (!firstName.trim() || !lastName.trim() || !phone.trim() || !email.trim() || !password.trim()) {
+      setError("Please fill in all required fields.");
+      return;
+    }
 
     if (password !== confirmPassword) {
-      toast({
-        title: "Password mismatch",
-        description: "Please ensure both passwords match.",
-        variant: "destructive",
-      });
+      setError("Please ensure both passwords match.");
       return;
     }
 
     if (password.length < 8) {
-      toast({
-        title: "Password too short",
-        description: "Password must be at least 8 characters long.",
-        variant: "destructive",
-      });
+      setError("Password must be at least 8 characters long.");
       return;
     }
 
@@ -43,15 +46,22 @@ const SignUp = () => {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ 
+          first_name: firstName,
+          last_name: lastName,
+          phone: phone,
+          email: email,
+          password: password
+        }),
       });
+      
       if (!response.ok) {
         const errorData = await response.json();
-        toast({
-          title: 'Sign up failed',
-          description: errorData.detail || 'Unable to create account.',
-          variant: 'destructive',
-        });
+        if (errorData.detail === 'User with this email already exists') {
+          setError('An account with this email already exists.');
+        } else {
+          setError(errorData.detail || 'Unable to create account.');
+        }
         setIsLoading(false);
         return;
       }
@@ -61,11 +71,7 @@ const SignUp = () => {
       });
   navigate('/chat');
     } catch (error) {
-      toast({
-        title: 'Network error',
-        description: 'Please try again.',
-        variant: 'destructive',
-      });
+      setError('Network error. Please try again.');
     } finally {
       setIsLoading(false);
     }
@@ -91,6 +97,14 @@ const SignUp = () => {
               Back
             </a>
           </div>
+          {error && (
+            <div className="flex items-center justify-center mb-4">
+              <span className="inline-flex items-center gap-2 px-3 py-2 rounded-md bg-red-100 text-red-700 border border-red-300 shadow-sm animate-fade-in text-sm font-semibold">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12c0 4.97-4.03 9-9 9s-9-4.03-9-9 4.03-9 9-9 9 4.03 9 9z" /></svg>
+                {error}
+              </span>
+            </div>
+          )}
           <CardHeader className="space-y-1">
             <CardTitle className="text-2xl font-bold text-center">Sign Up</CardTitle>
             <CardDescription className="text-center">
@@ -100,6 +114,47 @@ const SignUp = () => {
           
           <form onSubmit={handleSubmit}>
             <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="firstName">First Name</Label>
+                  <Input
+                    id="firstName"
+                    type="text"
+                    placeholder="John"
+                    value={firstName}
+                    onChange={(e) => setFirstName(e.target.value)}
+                    className="input-focus"
+                    required
+                  />
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="lastName">Last Name</Label>
+                  <Input
+                    id="lastName"
+                    type="text"
+                    placeholder="Doe"
+                    value={lastName}
+                    onChange={(e) => setLastName(e.target.value)}
+                    className="input-focus"
+                    required
+                  />
+                </div>
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="phone">Phone Number</Label>
+                <Input
+                  id="phone"
+                  type="tel"
+                  placeholder="+91 555 000-0000"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  className="input-focus"
+                  required
+                />
+              </div>
+              
               <div className="space-y-2">
                 <Label htmlFor="email">Email</Label>
                 <Input
@@ -137,6 +192,18 @@ const SignUp = () => {
                   placeholder="••••••••"
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
+                  className="input-focus"
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="Location">Location</Label>
+                <Input
+                  id="location"
+                  type="text"
+                  placeholder="Mumbai, MA"
+                  value={location}
+                  onChange={(e) => setLocation(e.target.value)}
                   className="input-focus"
                   required
                 />
