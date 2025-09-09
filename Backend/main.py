@@ -59,7 +59,11 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 
-# --- Pydantic models ---
+
+class SignInRequest(BaseModel):
+    email: str
+    password: str
+
 class SignUpRequest(BaseModel):
     first_name: str
     last_name: str
@@ -67,7 +71,6 @@ class SignUpRequest(BaseModel):
     email: str
     password: str
     location: Optional[str] = None
-
 
 class UserUpdateRequest(BaseModel):
     first_name: Optional[str] = None
@@ -77,10 +80,22 @@ class UserUpdateRequest(BaseModel):
     location: Optional[str] = None
     notifications: Optional[dict] = None
 
-
 class Token(BaseModel):
     access_token: str
     token_type: str
+# --- API routes ---
+@app.post("/signin", response_model=Token)
+async def signin(data: SignInRequest):
+    user = await db["users"].find_one({"email": data.email})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if not verify_password(data.password, user.get("password")):
+        raise HTTPException(status_code=400, detail="Wrong password")
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": user["email"]}, expires_delta=access_token_expires
+    )
+    return {"access_token": access_token, "token_type": "bearer"}
 
 
 # --- API routes ---
@@ -125,15 +140,12 @@ async def get_user(email: str):
 
 @app.put("/profile/{email}")
 async def update_user(email: str, data: UserUpdateRequest):
-    """Update user profile"""
     user = await db["users"].find_one({"email": email})
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-
     update_data = {k: v for k, v in data.dict().items() if v is not None}
     if not update_data:
         raise HTTPException(status_code=400, detail="No valid fields to update")
-
     await db["users"].update_one({"email": email}, {"$set": update_data})
     return {"message": "User updated successfully", "email": email}
 
