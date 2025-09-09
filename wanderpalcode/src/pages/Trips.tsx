@@ -101,18 +101,37 @@ const Trips = () => {
         const cacheRadius = 10000; // meters, must match backend default
         const cached = localStorage.getItem(cacheKey);
         let useCache = false;
+        // Haversine formula for accurate distance
+        function haversine(lat1: number, lon1: number, lat2: number, lon2: number) {
+          const toRad = (x: number) => x * Math.PI / 180;
+          const R = 6371000; // meters
+          const dLat = toRad(lat2 - lat1);
+          const dLon = toRad(lon2 - lon1);
+          const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+                    Math.sin(dLon/2) * Math.sin(dLon/2);
+          const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+          return R * c;
+        }
         if (cached) {
           try {
             const parsed = JSON.parse(cached);
-            const dist = Math.sqrt(
-              Math.pow(parsed.lat - latitude, 2) + Math.pow(parsed.lon - longitude, 2)
-            ) * 111139; // rough meters per degree
+            const dist = haversine(parsed.lat, parsed.lon, latitude, longitude);
             if (dist < cacheRadius && Array.isArray(parsed.trending)) {
+              // Debug: log cache hit
+              console.log('[Trending] Using cached trending places:', parsed);
               setTrendingDestinations(parsed.trending);
               setLoadingTrending(false);
               useCache = true;
+            } else {
+              // Debug: log cache miss
+              console.log('[Trending] Cache miss: dist', dist, 'radius', cacheRadius);
             }
-          } catch {}
+          } catch (e) {
+            console.log('[Trending] Cache parse error', e);
+          }
+        } else {
+          console.log('[Trending] No cache found for key', cacheKey);
         }
         if (!useCache) {
           fetch(`http://localhost:8000/trending?lat=${latitude}&lon=${longitude}`)
@@ -128,6 +147,7 @@ const Trips = () => {
                 trending: data.trending || []
               }));
               setLoadingTrending(false);
+              console.log('[Trending] Fetched and cached trending places');
             })
             .catch(err => {
               setTrendingError(err.message);
