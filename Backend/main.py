@@ -110,9 +110,9 @@ async def signup(data: SignUpRequest):
     user = data.dict()
     user["password"] = hashed_password
     user["notifications"] = {
-        "deals": True,
-        "recommendations": True,
-        "bookingUpdates": True,
+        "deals": False,
+        "recommendations": False,
+        "bookingUpdates": False,
         "marketing": False,
     }
     user["created_at"] = int(time())
@@ -164,8 +164,10 @@ async def get_user_trips(email: str):
 
 
 
+
 @app.get("/trending")
-async def trending(lat: float, lon: float, radius: int = 10000):
+async def trending(lat: float, lon: float, radius: int = 30000):
+    print(f"[DEBUG] Using OPENTRIPMAP_API_KEY: {OPENTRIPMAP_API_KEY}")
     url = f"{OPENTRIPMAP_BASE_URL}places/radius"
     params = {
         "apikey": OPENTRIPMAP_API_KEY,
