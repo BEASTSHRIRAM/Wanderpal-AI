@@ -82,8 +82,8 @@ const Header = () => {
                 className="hidden md:flex items-center space-x-2 p-2 rounded-lg hover:bg-muted/50 transition-all duration-200"
               >
                 <Avatar className="h-8 w-8 ring-2 ring-primary/20 hover:ring-primary/40 transition-all duration-200">
-                  <AvatarFallback className="bg-gradient-hero text-white text-sm">
-                    JD
+                  <AvatarFallback className="bg-gradient-hero text-white text-sm flex items-center justify-center">
+                    <User className="h-5 w-5" />
                   </AvatarFallback>
                 </Avatar>
                 <span className="text-sm font-medium text-muted-foreground">Profile</span>

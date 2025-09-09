@@ -19,6 +19,18 @@ import {
   Heart
 } from 'lucide-react';
 
+
+interface Hotel {
+  id: string;
+  name: string;
+  image: string;
+  rating: number;
+  price: number;
+  location: string;
+  isBooked?: boolean;
+  savedAt?: Date;
+}
+
 interface Trip {
   id: string;
   name: string;
@@ -26,21 +38,11 @@ interface Trip {
   dates: string;
   guests: number;
   status: 'planned' | 'booked' | 'completed';
-  hotels: SavedHotel[];
+  hotels: Hotel[];
   createdAt: Date;
 }
 
-interface SavedHotel {
-  id: string;
-  name: string;
-  image: string;
-  rating: number;
-  price: number;
-  location: string;
-  features: string[];
-  savedAt: Date;
-  isBooked?: boolean;
-}
+
 
 const Trips = () => {
   const navigate = useNavigate();
@@ -53,85 +55,119 @@ const Trips = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState('trips');
 
-  const trips: Trip[] = [
-    {
-      id: '1',
-      name: 'Paris Getaway',
-      destination: 'Paris, France',
-      dates: 'Mar 15-20, 2024',
-      guests: 2,
-      status: 'planned',
-      hotels: [
-        {
-          id: '1',
-          name: 'The Grand Plaza Hotel',
-          image: '/placeholder.svg',
-          rating: 4.8,
-          price: 289,
-          location: 'Downtown Paris',
-          features: ['Pool', 'Spa', 'Free WiFi'],
-          savedAt: new Date(),
-          isBooked: true
-        },
-        {
-          id: '2',
-          name: 'Boutique Charm Suites',
-          image: '/placeholder.svg',
-          rating: 4.6,
-          price: 195,
-          location: 'Marais District',
-          features: ['Free Breakfast', 'Balcony'],
-          savedAt: new Date()
-        }
-      ],
-      createdAt: new Date('2024-02-01')
-    },
-    {
-      id: '2',
-      name: 'Tokyo Adventure',
-      destination: 'Tokyo, Japan',
-      dates: 'May 10-18, 2024',
-      guests: 1,
-      status: 'booked',
-      hotels: [
-        {
-          id: '3',
-          name: 'Modern Tokyo Tower Hotel',
-          image: '/placeholder.svg',
-          rating: 4.9,
-          price: 320,
-          location: 'Shibuya',
-          features: ['City View', 'Restaurant', 'Gym'],
-          savedAt: new Date(),
-          isBooked: true
-        }
-      ],
-      createdAt: new Date('2024-01-15')
-    }
-  ];
+  // Trending destinations state
+  const [trendingDestinations, setTrendingDestinations] = useState<any[]>([]);
+  const [loadingTrending, setLoadingTrending] = useState(false);
+  const [trendingError, setTrendingError] = useState<string | null>(null);
 
-  const savedHotels: SavedHotel[] = [
-    {
-      id: '4',
-      name: 'Luxury Beach Resort',
-      image: '/placeholder.svg',
-      rating: 4.7,
-      price: 450,
-      location: 'Maldives',
-      features: ['Beach Access', 'All Inclusive', 'Spa'],
-      savedAt: new Date('2024-02-10')
-    },
-    {
-      id: '5',
-      name: 'Mountain Lodge Retreat',
-      image: '/placeholder.svg',
-      rating: 4.5,
-      price: 180,
-      location: 'Swiss Alps',
-      features: ['Ski Access', 'Fireplace', 'Mountain View'],
-      savedAt: new Date('2024-02-05')
+  // Fetch trending places when Trending tab is active, with caching by location
+  useEffect(() => {
+    if (activeTab !== 'trending') return;
+    setTrendingError(null);
+    setLoadingTrending(true);
+    if (!navigator.geolocation) {
+      setTrendingError('Geolocation is not supported by your browser.');
+      setLoadingTrending(false);
+      return;
     }
-  ];
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const { latitude, longitude } = pos.coords;
+        const cacheKey = 'trending_places_cache';
+        const cacheRadius = 10000; // meters, must match backend default
+        const cached = localStorage.getItem(cacheKey);
+        let useCache = false;
+        if (cached) {
+          try {
+            const parsed = JSON.parse(cached);
+            const dist = Math.sqrt(
+              Math.pow(parsed.lat - latitude, 2) + Math.pow(parsed.lon - longitude, 2)
+            ) * 111139; // rough meters per degree
+            if (dist < cacheRadius && Array.isArray(parsed.trending)) {
+              setTrendingDestinations(parsed.trending);
+              setLoadingTrending(false);
+              useCache = true;
+            }
+          } catch {}
+        }
+        if (!useCache) {
+          fetch(`http://localhost:8000/trending?lat=${latitude}&lon=${longitude}`)
+            .then(res => {
+              if (!res.ok) throw new Error('Failed to fetch trending places');
+              return res.json();
+            })
+            .then(data => {
+              setTrendingDestinations(data.trending || []);
+              localStorage.setItem(cacheKey, JSON.stringify({
+                lat: latitude,
+                lon: longitude,
+                trending: data.trending || []
+              }));
+              setLoadingTrending(false);
+            })
+            .catch(err => {
+              setTrendingError(err.message);
+              setLoadingTrending(false);
+            });
+        }
+      },
+      (err) => {
+        setTrendingError('Unable to get your location.');
+        setLoadingTrending(false);
+      }
+    );
+  }, [activeTab]);
+
+  const [trips, setTrips] = useState<Trip[]>([]);
+  const [loadingTrips, setLoadingTrips] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+
+  // Helper to extract email from JWT
+  function getEmailFromToken(token: string | null): string | null {
+    if (!token) return null;
+    try {
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      return payload.sub || payload.email || null;
+    } catch {
+      return null;
+    }
+  }
+
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    const email = getEmailFromToken(token);
+    if (!token || !email) {
+      navigate('/signin');
+      return;
+    }
+    setLoadingTrips(true);
+    fetch(`http://localhost:8000/users/${email}/trips`, {
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    })
+      .then(res => {
+        if (!res.ok) throw new Error('Failed to fetch trips');
+        return res.json();
+      })
+      .then(data => {
+        // Convert createdAt and savedAt to Date objects if needed
+        const trips = (data.trips || []).map((trip: any) => ({
+          ...trip,
+          createdAt: trip.createdAt ? new Date(trip.createdAt) : new Date(),
+          hotels: (trip.hotels || []).map((hotel: any) => ({
+            ...hotel,
+            savedAt: hotel.savedAt ? new Date(hotel.savedAt) : new Date()
+          }))
+        }));
+        setTrips(trips);
+        setLoadingTrips(false);
+      })
+      .catch(err => {
+        setFetchError(err.message);
+        setLoadingTrips(false);
+      });
+  }, [navigate]);
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -151,11 +187,6 @@ const Trips = () => {
     trip.destination.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const filteredHotels = savedHotels.filter(hotel =>
-    hotel.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    hotel.location.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
   return (
     <div className="min-h-screen py-8 px-4">
       <div className="max-w-6xl mx-auto">
@@ -165,7 +196,7 @@ const Trips = () => {
             Your <span className="bg-gradient-hero bg-clip-text text-transparent">Trips</span>
           </h1>
           <p className="text-muted-foreground">
-            Manage your travel plans and saved hotels
+            Manage your travel plans
           </p>
         </div>
 
@@ -174,7 +205,7 @@ const Trips = () => {
           <div className="relative flex-1">
             <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="Search trips and hotels..."
+              placeholder="Search trips..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="pl-10 input-focus"
@@ -193,15 +224,60 @@ const Trips = () => {
               <MapPin className="h-4 w-4" />
               My Trips ({trips.length})
             </TabsTrigger>
-            <TabsTrigger value="saved" className="flex items-center gap-2">
-              <Heart className="h-4 w-4" />
-              Saved Hotels ({savedHotels.length})
+            <TabsTrigger value="trending" className="flex items-center gap-2">
+              <Star className="h-4 w-4 text-yellow-400" />
+              Trending
             </TabsTrigger>
           </TabsList>
+          {/* Trending Tab */}
+          <TabsContent value="trending" className="space-y-6">
+            <div className="mb-6">
+              <h2 className="text-2xl font-bold mb-2">Trending Destinations</h2>
+              <p className="text-muted-foreground mb-4">Popular places near you</p>
+            </div>
+            {loadingTrending ? (
+              <div className="text-center py-12 text-muted-foreground">Loading trending places...</div>
+            ) : trendingError ? (
+              <div className="text-center py-12 text-red-500">{trendingError}</div>
+            ) : trendingDestinations.length === 0 ? (
+              <div className="text-center py-12 text-muted-foreground">No trending places found.</div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {trendingDestinations.map((place, index) => (
+                  <Card key={place.xid || index} className="card-premium animate-scale-in overflow-hidden" style={{ animationDelay: `${index * 0.1}s` }}>
+                    <div className="relative">
+                      <img
+                        src={place.preview || '/placeholder.svg'}
+                        alt={place.name}
+                        className="w-full h-48 object-cover"
+                      />
+                    </div>
+                    <CardContent className="p-4">
+                      <h3 className="font-semibold text-lg mb-1">{place.name}</h3>
+                      <p className="text-sm text-muted-foreground mb-2">{place.address && (place.address.city || place.address.town || place.address.village || place.address.state || '')}</p>
+                      <p className="text-sm mb-3">{place.wikipedia_extracts || place.kinds}</p>
+                      {place.otm && (
+                        <Button size="sm" className="btn-gradient" asChild>
+                          <a href={place.otm} target="_blank" rel="noopener noreferrer">
+                            <ExternalLink className="h-3 w-3 mr-1" />
+                            Explore
+                          </a>
+                        </Button>
+                      )}
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </TabsContent>
 
           {/* Trips Tab */}
           <TabsContent value="trips" className="space-y-6">
-            {filteredTrips.length === 0 ? (
+            {loadingTrips ? (
+              <div className="text-center py-12 text-muted-foreground">Loading trips...</div>
+            ) : fetchError ? (
+              <div className="text-center py-12 text-red-500">{fetchError}</div>
+            ) : filteredTrips.length === 0 ? (
               <Card className="card-premium text-center py-12">
                 <CardContent>
                   <MapPin className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
@@ -252,35 +328,39 @@ const Trips = () => {
                         <div>
                           <h4 className="font-medium mb-3">Hotels ({trip.hotels.length})</h4>
                           <div className="space-y-3">
-                            {trip.hotels.map((hotel) => (
-                              <div key={hotel.id} className="flex items-center gap-3 p-3 bg-muted/30 rounded-lg">
-                                <img
-                                  src={hotel.image}
-                                  alt={hotel.name}
-                                  className="w-16 h-16 object-cover rounded-lg"
-                                />
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex items-center justify-between mb-1">
-                                    <h5 className="font-medium truncate">{hotel.name}</h5>
-                                    {hotel.isBooked && (
-                                      <Badge variant="secondary" className="ml-2">
-                                        Booked
-                                      </Badge>
-                                    )}
-                                  </div>
-                                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                    <div className="flex items-center gap-1">
-                                      <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />
-                                      {hotel.rating}
+                            {trip.hotels.length === 0 ? (
+                              <div className="text-muted-foreground text-sm">No hotels for this trip.</div>
+                            ) : (
+                              trip.hotels.map((hotel) => (
+                                <div key={hotel.id} className="flex items-center gap-3 p-3 bg-muted/30 rounded-lg">
+                                  <img
+                                    src={hotel.image}
+                                    alt={hotel.name}
+                                    className="w-16 h-16 object-cover rounded-lg"
+                                  />
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center justify-between mb-1">
+                                      <h5 className="font-medium truncate">{hotel.name}</h5>
+                                      {hotel.isBooked && (
+                                        <Badge variant="secondary" className="ml-2">
+                                          Booked
+                                        </Badge>
+                                      )}
                                     </div>
-                                    <span>•</span>
-                                    <span>${hotel.price}/night</span>
-                                    <span>•</span>
-                                    <span>{hotel.location}</span>
+                                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                      <div className="flex items-center gap-1">
+                                        <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />
+                                        {hotel.rating}
+                                      </div>
+                                      <span>•</span>
+                                      <span>${hotel.price}/night</span>
+                                      <span>•</span>
+                                      <span>{hotel.location}</span>
+                                    </div>
                                   </div>
                                 </div>
-                              </div>
-                            ))}
+                              ))
+                            )}
                           </div>
                         </div>
                         
@@ -304,90 +384,7 @@ const Trips = () => {
             )}
           </TabsContent>
 
-          {/* Saved Hotels Tab */}
-          <TabsContent value="saved" className="space-y-6">
-            {filteredHotels.length === 0 ? (
-              <Card className="card-premium text-center py-12">
-                <CardContent>
-                  <Heart className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                  <h3 className="text-lg font-semibold mb-2">No saved hotels</h3>
-                  <p className="text-muted-foreground mb-4">
-                    {searchQuery ? 'Try adjusting your search terms' : 'Save hotels you love for future trips!'}
-                  </p>
-                  <Button className="btn-gradient">
-                    <Search className="h-4 w-4 mr-2" />
-                    Discover Hotels
-                  </Button>
-                </CardContent>
-              </Card>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {filteredHotels.map((hotel, index) => (
-                  <Card 
-                    key={hotel.id} 
-                    className="card-premium animate-scale-in overflow-hidden"
-                    style={{ animationDelay: `${index * 0.1}s` }}
-                  >
-                    <div className="relative">
-                      <img
-                        src={hotel.image}
-                        alt={hotel.name}
-                        className="w-full h-48 object-cover"
-                      />
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        className="absolute top-3 right-3 h-8 w-8 rounded-full p-0"
-                      >
-                        <Heart className="h-4 w-4 fill-red-500 text-red-500" />
-                      </Button>
-                    </div>
-                    
-                    <CardContent className="p-4">
-                      <div className="flex justify-between items-start mb-2">
-                        <h3 className="font-semibold truncate">{hotel.name}</h3>
-                        <div className="text-right ml-2">
-                          <p className="font-bold text-primary">${hotel.price}</p>
-                          <p className="text-xs text-muted-foreground">per night</p>
-                        </div>
-                      </div>
-                      
-                      <div className="flex items-center gap-2 mb-3">
-                        <div className="flex items-center gap-1">
-                          <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-                          <span className="text-sm">{hotel.rating}</span>
-                        </div>
-                        <span className="text-muted-foreground">•</span>
-                        <span className="text-sm text-muted-foreground truncate">{hotel.location}</span>
-                      </div>
-                      
-                      <div className="flex flex-wrap gap-1 mb-4">
-                        {hotel.features.slice(0, 3).map((feature) => (
-                          <Badge key={feature} variant="secondary" className="text-xs">
-                            {feature}
-                          </Badge>
-                        ))}
-                      </div>
-                      
-                      <div className="flex gap-2">
-                        <Button size="sm" className="btn-gradient flex-1">
-                          <ExternalLink className="h-3 w-3 mr-1" />
-                          Book
-                        </Button>
-                        <Button size="sm" variant="outline">
-                          <Plus className="h-3 w-3" />
-                        </Button>
-                      </div>
-                      
-                      <p className="text-xs text-muted-foreground mt-2">
-                        Saved {hotel.savedAt.toLocaleDateString()}
-                      </p>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            )}
-          </TabsContent>
+
         </Tabs>
       </div>
     </div>
