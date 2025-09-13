@@ -1,5 +1,5 @@
 import os
-import random
+import random, Request
 from time import time
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -10,6 +10,9 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+import random
+import requests
+# Security and JWT imports
 from passlib.context import CryptContext
 from jose import JWTError, jwt
 
@@ -161,6 +164,35 @@ async def get_user_trips(email: str):
     for trip in trips:
         trip.pop("_id", None)
     return {"trips": trips}
+
+LANGFLOW_API_URL = f"https://api.langflow.astra.datastax.com/lf/d0c29d20-be53-4ac7-ac33-5f58ffdb76cf/api/v1/run/1a4bd38d-81ed-4dfe-8d19-ba12ee7f324a"
+LANGFLOW_TOKEN = os.getenv("LANGFLOW_TOKEN").strip('"')  # Set this in your .env
+
+@app.post("/api/langflow-chat")
+async def langflow_chat(request: Request):
+    """
+    Proxy plain chat messages to Langflow API and return the response.
+    Expects JSON: {"input_value": "user message"}
+    """
+    body = await request.json()
+    payload = {
+        "input_value": body.get("input_value", ""),  # The input value to be processed by the flow
+        "output_type": "chat",  # Specifies the expected output format
+        "input_type": "chat"  # Specifies the input format
+    }
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer "+os.getenv("LANGFLOW_TOKEN").strip('"')
+    }
+    try:
+        response = requests.request("POST", LANGFLOW_API_URL, json=payload, headers=headers, timeout=1200)
+        response.raise_for_status()  # Raise exception for bad status codes
+        #response = requests.post(LANGFLOW_API_URL, json=payload, headers=headers)
+        #response.raise_for_status()
+        print(response)
+        return response.json()
+    except requests.RequestException as e:
+        return {"error": str(e), "detail": getattr(e, 'response', None) and e.response.text}
 
 
 

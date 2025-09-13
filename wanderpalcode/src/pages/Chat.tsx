@@ -178,21 +178,56 @@ const Chat = () => {
     setInputValue('');
     setIsLoading(true);
 
-    // Simulate AI thinking
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 600000); // 600 seconds in milliseconds
 
-    const aiMessage: Message = {
-      id: (Date.now() + 1).toString(),
-      type: 'ai',
-      content: "I'm searching for the perfect hotels for you. Let me activate my AI agents...",
-      timestamp: new Date(),
-      agents: agents.map(agent => ({ ...agent, status: 'pending' as const })),
-    };
-
-    setMessages(prev => [...prev, aiMessage]);
-
-    // Start agent workflow simulation
-    simulateAgentWorkflow();
+      const response = await fetch('http://localhost:8000/api/langflow-chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ input_value: userMessage.content }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+      const json = await response.json();
+      const data = json.outputs?.[0]?.outputs?.[0]?.artifacts?.message;
+      console.log(data);
+      let aiText = '';
+      if (typeof data === 'string') {
+        aiText = data;
+      } else if (data?.message) {
+        aiText = data.message;
+      } else if (data?.text) {
+        aiText = data.text;
+      } else if (data?.output) {
+        aiText = data.output;
+      } else if (data?.response) {
+        aiText = data.response;
+      } else if (data?.result) {
+        aiText = data.result;
+      } else if (typeof data === 'object') {
+        aiText = Object.values(data).find(v => typeof v === 'string') || '';
+      }
+      if (!aiText) aiText = 'Sorry, I could not understand the response.';
+      const aiMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        type: 'ai',
+        content: aiText,
+        timestamp: new Date(),
+      };
+      setMessages(prev => [...prev, aiMessage]);
+    } catch (err) {
+      setMessages(prev => [...prev, {
+        id: (Date.now() + 2).toString(),
+        type: 'ai',
+        content: 'Sorry, there was an error contacting the AI agent.',
+        timestamp: new Date(),
+      }]);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
