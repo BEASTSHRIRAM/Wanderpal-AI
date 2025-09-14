@@ -51,7 +51,8 @@ const Chat = () => {
   useEffect(() => {
     const token = localStorage.getItem('token');
     if (!token) {
-      navigate('/signin');
+      // Don't auto-redirect - allow anonymous chat if backend allows it
+      // navigate('/signin');
     }
   }, [navigate]);
   const [messages, setMessages] = useState<Message[]>([
@@ -175,10 +176,12 @@ const Chat = () => {
     };
 
     setMessages(prev => [...prev, userMessage]);
+    const messageText = inputValue;
     setInputValue('');
     setIsLoading(true);
 
     try {
+<<<<<<< HEAD
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 600000); // 600 seconds in milliseconds
 
@@ -225,6 +228,59 @@ const Chat = () => {
         content: 'Sorry, there was an error contacting the AI agent.',
         timestamp: new Date(),
       }]);
+=======
+      // Try with token if present, otherwise send anonymously
+      const token = localStorage.getItem('token');
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      // Send message to backend
+      let response = await fetch('http://localhost:8000/chat', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ message: messageText, user_id: null }),
+      });
+
+      // If we got 401 and we had sent a token, retry without auth (backend may accept anonymous)
+      if (response.status === 401 && token) {
+        console.info('Auth failed, retrying anonymously');
+        const anonHeaders = { 'Content-Type': 'application/json' };
+        response = await fetch('http://localhost:8000/chat', {
+          method: 'POST',
+          headers: anonHeaders,
+          body: JSON.stringify({ message: messageText, user_id: null }),
+        });
+      }
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      
+      // Create AI response message
+      const aiMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        type: 'ai',
+        content: data.response,
+        timestamp: new Date(),
+      };
+
+      setMessages(prev => [...prev, aiMessage]);
+
+    } catch (error) {
+      console.error('Chat error:', error);
+      
+      // Create error response
+      const errorMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        type: 'ai',
+        content: `I'm sorry, I encountered an error: ${error instanceof Error ? error.message : 'Unknown error'}. Please try again.`,
+        timestamp: new Date(),
+      };
+
+      setMessages(prev => [...prev, errorMessage]);
+>>>>>>> f4f0c70 (fixed chat functionality from backend anbd integrated langflow)
     } finally {
       setIsLoading(false);
     }
