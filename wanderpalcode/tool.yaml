@@ -1,0 +1,21 @@
+version: 1
+id: search-hotels
+name: Hotel_Finder_Tool
+description: A tool to search for hotel listings using the SerpApi Google Hotels engine.
+parameters:
+  - name: q
+    type: string
+    description: The city or search query for hotels.
+    required: true
+  - name: check_in_date
+    type: string
+    description: The check-in date in YYYY-MM-DD format.
+    required: true
+  - name: check_out_date
+    type: string
+    description: The check-out date in YYYY-MM-DD format.
+    required: true
+  - name: api_key
+    type: string
+    description: Your SerpApi API key.
+    required: true

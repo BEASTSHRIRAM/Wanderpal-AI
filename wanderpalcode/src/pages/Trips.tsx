@@ -96,9 +96,13 @@ const Trips = () => {
     const email = getEmailFromToken(token);
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        const { latitude, longitude } = pos.coords;
+        // Round lat/lon to 4 decimals for cache stability
+        const round = (n: number) => Math.round(n * 10000) / 10000;
+        const latitude = round(pos.coords.latitude);
+        const longitude = round(pos.coords.longitude);
         const cacheKey = email ? `trending_places_cache_${email}` : 'trending_places_cache';
         const cacheRadius = 10000; // meters, must match backend default
+        const cacheExpiryMs = 60 * 60 * 1000; // 1 hour
         const cached = localStorage.getItem(cacheKey);
         let useCache = false;
         // Haversine formula for accurate distance
@@ -117,7 +121,9 @@ const Trips = () => {
           try {
             const parsed = JSON.parse(cached);
             const dist = haversine(parsed.lat, parsed.lon, latitude, longitude);
-            if (dist < cacheRadius && Array.isArray(parsed.trending)) {
+            const now = Date.now();
+            const cacheTime = parsed.cachedAt || 0;
+            if (dist < cacheRadius && Array.isArray(parsed.trending) && (now - cacheTime) < cacheExpiryMs) {
               // Debug: log cache hit
               console.log('[Trending] Using cached trending places:', parsed);
               setTrendingDestinations(parsed.trending);
@@ -125,7 +131,7 @@ const Trips = () => {
               useCache = true;
             } else {
               // Debug: log cache miss
-              console.log('[Trending] Cache miss: dist', dist, 'radius', cacheRadius);
+              console.log('[Trending] Cache miss: dist', dist, 'radius', cacheRadius, 'age', now - cacheTime);
             }
           } catch (e) {
             console.log('[Trending] Cache parse error', e);
@@ -144,7 +150,8 @@ const Trips = () => {
               localStorage.setItem(cacheKey, JSON.stringify({
                 lat: latitude,
                 lon: longitude,
-                trending: data.trending || []
+                trending: data.trending || [],
+                cachedAt: Date.now()
               }));
               setLoadingTrending(false);
               console.log('[Trending] Fetched and cached trending places');
@@ -160,7 +167,7 @@ const Trips = () => {
         setLoadingTrending(false);
       }
     );
-  }, [activeTab, localStorage.getItem('token')]);
+  }, [activeTab]);
 
   const [trips, setTrips] = useState<Trip[]>([]);
   const [loadingTrips, setLoadingTrips] = useState(true);

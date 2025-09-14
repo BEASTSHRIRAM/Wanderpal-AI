@@ -1,13 +1,16 @@
 import os
 import random, Request
 from time import time
+import asyncio
+import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Optional, Dict
 
 import httpx
 import motor.motor_asyncio
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Depends, Query
+from fastapi import FastAPI, HTTPException, Depends, Query, Header
+from fastapi.security import OAuth2PasswordBearer
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import random
@@ -16,6 +19,9 @@ import requests
 from passlib.context import CryptContext
 from jose import JWTError, jwt
 
+# Import Langflow integration
+from langflow import process_travel_query
+
 # --- Load environment variables ---
 load_dotenv()
 MONGODB_URL = os.getenv("MONGODB_URL")
@@ -23,6 +29,11 @@ DB_NAME = os.getenv("DB_NAME")
 SECRET_KEY = os.getenv("SECRET_KEY", "a_default_secret_key_for_development")  # Use a strong one in prod
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
+ALLOW_ANONYMOUS_CHAT = os.getenv("ALLOW_ANONYMOUS_CHAT", "false").lower() == "true"
+
+print(f"[CONFIG] ALLOW_ANONYMOUS_CHAT={ALLOW_ANONYMOUS_CHAT}")
+print(f"[CONFIG] LANGFLOW_RUN_URL present={bool(os.getenv('LANGFLOW_RUN_URL'))}")
+print(f"[CONFIG] LANGFLOW_BASE_URL present={bool(os.getenv('LANGFLOW_BASE_URL'))}")
 
 # --- Constants ---
 OPENTRIPMAP_API_KEY = os.getenv("OPENTRIPMAP_API_KEY")
@@ -60,6 +71,40 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=15))
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+
+# --- Auth dependency ---
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="signin")
+
+
+async def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
+    """FastAPI dependency to get the currently authenticated user from a JWT Bearer token."""
+    credentials_error = HTTPException(
+        status_code=401,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        sub = payload.get("sub")
+        if sub is None:
+            raise credentials_error
+        return {"sub": sub}
+    except JWTError:
+        raise credentials_error
+
+
+async def parse_bearer_token(authorization: Optional[str] = Header(None)) -> Optional[str]:
+    """Extract Bearer token from the Authorization header if present; return None if absent."""
+    if not authorization:
+        return None
+    try:
+        scheme, token = authorization.split(" ", 1)
+        if scheme.lower() == "bearer" and token:
+            return token.strip()
+    except ValueError:
+        return None
+    return None
 
 
 
@@ -243,3 +288,169 @@ async def trending(lat: float, lon: float, radius: int = 30000):
                 "xid": xid
             })
     return {"trending": trending}
+
+
+# --- Chat Models ---
+class ChatRequest(BaseModel):
+    message: str
+    user_id: Optional[str] = None
+
+
+class ChatResponse(BaseModel):
+    response: str
+    user_id: Optional[str] = None
+
+
+class TaskCreated(BaseModel):
+    task_id: str
+
+
+class TaskResult(BaseModel):
+    task_id: str
+    status: str  # pending | done | error
+    result: Optional[str] = None
+    error: Optional[str] = None
+
+
+# --- Chat Endpoint ---
+@app.post("/chat", response_model=ChatResponse)
+async def chat_with_ai(request: ChatRequest, token: Optional[str] = Depends(parse_bearer_token)):
+    """
+    Chat endpoint that processes user messages through Langflow
+    """
+    try:
+        # Determine user identity from token or allow anonymous when enabled
+        user_email: Optional[str] = None
+        langflow_api_token: Optional[str] = None
+        if token:
+            try:
+                payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+                user_email = payload.get("sub") or payload.get("email")
+            except JWTError:
+                # Token could not be decoded as our JWT. Only treat it as a Langflow/Astra API
+                # token if it matches known Astra token patterns (e.g., starts with 'AstraCS:').
+                raw = token.strip()
+                if raw.startswith("AstraCS:") or raw.lower().startswith("astracs:"):
+                    langflow_api_token = raw
+                else:
+                    # Don't forward arbitrary tokens that failed JWT decoding — use the configured
+                    # application token instead and log for debugging.
+                    print("[DEBUG] Incoming bearer token failed JWT decode and is not an Astra token; using configured application token for Langflow upstream.")
+                    # leave langflow_api_token as None so env fallback will be used
+        elif not ALLOW_ANONYMOUS_CHAT:
+            raise HTTPException(status_code=401, detail="Authentication required")
+
+        # Always prefer an explicit non-JWT token, but fall back to configured application token
+        env_langflow_token = os.getenv('LANGFLOW_APPLICATION_TOKEN')
+        # Prefer incoming Astra token, else fall back to env token
+        if not langflow_api_token and env_langflow_token:
+            langflow_api_token = env_langflow_token
+
+        # Debug: indicate token source and masked value
+        if langflow_api_token:
+            try:
+                masked = langflow_api_token[:8] + '...' + langflow_api_token[-8:]
+            except Exception:
+                masked = '<token>'
+            source = 'incoming' if token and token.strip() == langflow_api_token else 'env'
+            print(f"[DEBUG] Using Langflow token present: True source={source} masked={masked}")
+        else:
+            print("[DEBUG] Using Langflow token present: False")
+        
+        # Process the message through Langflow
+        ai_response = await process_travel_query(
+            message=request.message,
+            user_id=request.user_id or user_email,
+            langflow_token=langflow_api_token,
+        )
+        
+        return ChatResponse(
+            response=ai_response,
+            user_id=request.user_id or user_email
+        )
+
+    except HTTPException as e:
+        # Propagate intended HTTP status codes such as 401
+        raise e
+    except Exception as e:
+        print(f"[ERROR] Chat endpoint error: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to process chat message: {str(e)}"
+        )
+
+
+@app.get("/_debug")
+async def _debug():
+    """Return masked runtime configuration to help debugging env issues."""
+    run_url = os.getenv('LANGFLOW_RUN_URL')
+    base_url = os.getenv('LANGFLOW_BASE_URL')
+    app_token = os.getenv('LANGFLOW_APPLICATION_TOKEN')
+    return {
+        "allow_anonymous": ALLOW_ANONYMOUS_CHAT,
+        "langflow_run_url_present": bool(run_url),
+        "langflow_run_url": (run_url[:80] + '...') if run_url and len(run_url) > 80 else run_url,
+        "langflow_base_url_present": bool(base_url),
+        "langflow_application_token_present": bool(app_token),
+        "langflow_application_token_masked": (app_token[:8] + '...' + app_token[-8:]) if app_token else None,
+    }
+
+
+# --- Async task queue (in-memory, ephemeral) ---
+# This avoids holding the HTTP request open while upstream may take a long time.
+_tasks: Dict[str, Dict] = {}
+_tasks_lock = asyncio.Lock()
+
+
+async def _run_langflow_task(task_id: str, message: str, user_id: Optional[str], langflow_token: Optional[str]):
+    try:
+        result = await process_travel_query(message=message, user_id=user_id, langflow_token=langflow_token)
+        async with _tasks_lock:
+            _tasks[task_id]["status"] = "done"
+            _tasks[task_id]["result"] = result
+    except Exception as e:
+        async with _tasks_lock:
+            _tasks[task_id]["status"] = "error"
+            _tasks[task_id]["error"] = str(e)
+
+
+@app.post("/chat/async", response_model=TaskCreated)
+async def chat_with_ai_async(request: ChatRequest, token: Optional[str] = Depends(parse_bearer_token)):
+    """Enqueue the chat request and return a task_id immediately. Poll `/chat/result/{task_id}` to get the result."""
+    # Determine token source like in the synchronous endpoint
+    user_email: Optional[str] = None
+    langflow_api_token: Optional[str] = None
+    if token:
+        try:
+            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+            user_email = payload.get("sub") or payload.get("email")
+        except JWTError:
+            raw = token.strip()
+            if raw.startswith("AstraCS:") or raw.lower().startswith("astracs:"):
+                langflow_api_token = raw
+            else:
+                print("[DEBUG] Incoming bearer token failed JWT decode and is not an Astra token; using configured application token for Langflow upstream.")
+    elif not ALLOW_ANONYMOUS_CHAT:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    env_langflow_token = os.getenv('LANGFLOW_APPLICATION_TOKEN')
+    if not langflow_api_token and env_langflow_token:
+        langflow_api_token = env_langflow_token
+
+    task_id = str(uuid.uuid4())
+    async with _tasks_lock:
+        _tasks[task_id] = {"status": "pending", "result": None, "error": None}
+
+    # Schedule background processing
+    asyncio.create_task(_run_langflow_task(task_id, request.message, request.user_id or user_email, langflow_api_token))
+
+    return TaskCreated(task_id=task_id)
+
+
+@app.get("/chat/result/{task_id}", response_model=TaskResult)
+async def chat_result(task_id: str):
+    async with _tasks_lock:
+        task = _tasks.get(task_id)
+        if not task:
+            raise HTTPException(status_code=404, detail="Task not found")
+        return TaskResult(task_id=task_id, status=task["status"], result=task.get("result"), error=task.get("error"))
