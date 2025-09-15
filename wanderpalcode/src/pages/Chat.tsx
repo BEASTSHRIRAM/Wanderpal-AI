@@ -181,54 +181,6 @@ const Chat = () => {
     setIsLoading(true);
 
     try {
-<<<<<<< HEAD
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 600000); // 600 seconds in milliseconds
-
-      const response = await fetch('http://localhost:8000/api/langflow-chat', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ input_value: userMessage.content }),
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
-      const json = await response.json();
-      const data = json.outputs?.[0]?.outputs?.[0]?.artifacts?.message;
-      console.log(data);
-      let aiText = '';
-      if (typeof data === 'string') {
-        aiText = data;
-      } else if (data?.message) {
-        aiText = data.message;
-      } else if (data?.text) {
-        aiText = data.text;
-      } else if (data?.output) {
-        aiText = data.output;
-      } else if (data?.response) {
-        aiText = data.response;
-      } else if (data?.result) {
-        aiText = data.result;
-      } else if (typeof data === 'object') {
-        aiText = Object.values(data).find(v => typeof v === 'string') || '';
-      }
-      if (!aiText) aiText = 'Sorry, I could not understand the response.';
-      const aiMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        type: 'ai',
-        content: aiText,
-        timestamp: new Date(),
-      };
-      setMessages(prev => [...prev, aiMessage]);
-    } catch (err) {
-      setMessages(prev => [...prev, {
-        id: (Date.now() + 2).toString(),
-        type: 'ai',
-        content: 'Sorry, there was an error contacting the AI agent.',
-        timestamp: new Date(),
-      }]);
-=======
       // Try with token if present, otherwise send anonymously
       const token = localStorage.getItem('token');
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -239,6 +191,7 @@ const Chat = () => {
         method: 'POST',
         headers,
         body: JSON.stringify({ message: messageText, user_id: null }),
+        signal: AbortSignal.timeout(180000), // 3 minutes timeout
       });
 
       // If we got 401 and we had sent a token, retry without auth (backend may accept anonymous)
@@ -249,11 +202,13 @@ const Chat = () => {
           method: 'POST',
           headers: anonHeaders,
           body: JSON.stringify({ message: messageText, user_id: null }),
+          signal: AbortSignal.timeout(180000), // 3 minutes timeout
         });
       }
 
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        const errorText = await response.text();
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
       }
 
       const data = await response.json();
@@ -262,7 +217,7 @@ const Chat = () => {
       const aiMessage: Message = {
         id: (Date.now() + 1).toString(),
         type: 'ai',
-        content: data.response,
+        content: data.response || "I'm sorry, I didn't receive a proper response. Please try again.",
         timestamp: new Date(),
       };
 
@@ -271,16 +226,23 @@ const Chat = () => {
     } catch (error) {
       console.error('Chat error:', error);
       
-      // Create error response
-      const errorMessage: Message = {
+      // Create error response with more specific messaging
+      let errorMessage = "I'm sorry, I encountered an error. Please try again.";
+      
+      if (error instanceof TypeError && error.message.includes('fetch')) {
+        errorMessage = "I'm having trouble connecting to the server. Please check if the backend is running on http://localhost:8000";
+      } else if (error instanceof Error) {
+        errorMessage = `I encountered an error: ${error.message}. Please try again.`;
+      }
+      
+      const errorMsg: Message = {
         id: (Date.now() + 1).toString(),
         type: 'ai',
-        content: `I'm sorry, I encountered an error: ${error instanceof Error ? error.message : 'Unknown error'}. Please try again.`,
+        content: errorMessage,
         timestamp: new Date(),
       };
 
-      setMessages(prev => [...prev, errorMessage]);
->>>>>>> f4f0c70 (fixed chat functionality from backend anbd integrated langflow)
+      setMessages(prev => [...prev, errorMsg]);
     } finally {
       setIsLoading(false);
     }

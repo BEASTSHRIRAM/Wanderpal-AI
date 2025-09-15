@@ -1,5 +1,5 @@
 import os
-import random, Request
+import random
 from time import time
 import asyncio
 import uuid
@@ -9,7 +9,7 @@ from typing import Optional, Dict
 import httpx
 import motor.motor_asyncio
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Depends, Query, Header
+from fastapi import FastAPI, HTTPException, Depends, Query, Header, Request
 from fastapi.security import OAuth2PasswordBearer
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -19,9 +19,6 @@ import requests
 from passlib.context import CryptContext
 from jose import JWTError, jwt
 
-# Import Langflow integration
-from langflow import process_travel_query
-
 # --- Load environment variables ---
 load_dotenv()
 MONGODB_URL = os.getenv("MONGODB_URL")
@@ -29,7 +26,7 @@ DB_NAME = os.getenv("DB_NAME")
 SECRET_KEY = os.getenv("SECRET_KEY", "a_default_secret_key_for_development")  # Use a strong one in prod
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
-ALLOW_ANONYMOUS_CHAT = os.getenv("ALLOW_ANONYMOUS_CHAT", "false").lower() == "true"
+ALLOW_ANONYMOUS_CHAT = os.getenv("ALLOW_ANONYMOUS_CHAT", "true").lower() == "true"
 
 print(f"[CONFIG] ALLOW_ANONYMOUS_CHAT={ALLOW_ANONYMOUS_CHAT}")
 print(f"[CONFIG] LANGFLOW_RUN_URL present={bool(os.getenv('LANGFLOW_RUN_URL'))}")
@@ -210,37 +207,6 @@ async def get_user_trips(email: str):
         trip.pop("_id", None)
     return {"trips": trips}
 
-LANGFLOW_API_URL = f"https://api.langflow.astra.datastax.com/lf/d0c29d20-be53-4ac7-ac33-5f58ffdb76cf/api/v1/run/1a4bd38d-81ed-4dfe-8d19-ba12ee7f324a"
-LANGFLOW_TOKEN = os.getenv("LANGFLOW_TOKEN").strip('"')  # Set this in your .env
-
-@app.post("/api/langflow-chat")
-async def langflow_chat(request: Request):
-    """
-    Proxy plain chat messages to Langflow API and return the response.
-    Expects JSON: {"input_value": "user message"}
-    """
-    body = await request.json()
-    payload = {
-        "input_value": body.get("input_value", ""),  # The input value to be processed by the flow
-        "output_type": "chat",  # Specifies the expected output format
-        "input_type": "chat"  # Specifies the input format
-    }
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": "Bearer "+os.getenv("LANGFLOW_TOKEN").strip('"')
-    }
-    try:
-        response = requests.request("POST", LANGFLOW_API_URL, json=payload, headers=headers, timeout=1200)
-        response.raise_for_status()  # Raise exception for bad status codes
-        #response = requests.post(LANGFLOW_API_URL, json=payload, headers=headers)
-        #response.raise_for_status()
-        print(response)
-        return response.json()
-    except requests.RequestException as e:
-        return {"error": str(e), "detail": getattr(e, 'response', None) and e.response.text}
-
-
-
 
 @app.get("/trending")
 async def trending(lat: float, lon: float, radius: int = 30000):
@@ -312,90 +278,6 @@ class TaskResult(BaseModel):
     error: Optional[str] = None
 
 
-# --- Chat Endpoint ---
-@app.post("/chat", response_model=ChatResponse)
-async def chat_with_ai(request: ChatRequest, token: Optional[str] = Depends(parse_bearer_token)):
-    """
-    Chat endpoint that processes user messages through Langflow
-    """
-    try:
-        # Determine user identity from token or allow anonymous when enabled
-        user_email: Optional[str] = None
-        langflow_api_token: Optional[str] = None
-        if token:
-            try:
-                payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-                user_email = payload.get("sub") or payload.get("email")
-            except JWTError:
-                # Token could not be decoded as our JWT. Only treat it as a Langflow/Astra API
-                # token if it matches known Astra token patterns (e.g., starts with 'AstraCS:').
-                raw = token.strip()
-                if raw.startswith("AstraCS:") or raw.lower().startswith("astracs:"):
-                    langflow_api_token = raw
-                else:
-                    # Don't forward arbitrary tokens that failed JWT decoding — use the configured
-                    # application token instead and log for debugging.
-                    print("[DEBUG] Incoming bearer token failed JWT decode and is not an Astra token; using configured application token for Langflow upstream.")
-                    # leave langflow_api_token as None so env fallback will be used
-        elif not ALLOW_ANONYMOUS_CHAT:
-            raise HTTPException(status_code=401, detail="Authentication required")
-
-        # Always prefer an explicit non-JWT token, but fall back to configured application token
-        env_langflow_token = os.getenv('LANGFLOW_APPLICATION_TOKEN')
-        # Prefer incoming Astra token, else fall back to env token
-        if not langflow_api_token and env_langflow_token:
-            langflow_api_token = env_langflow_token
-
-        # Debug: indicate token source and masked value
-        if langflow_api_token:
-            try:
-                masked = langflow_api_token[:8] + '...' + langflow_api_token[-8:]
-            except Exception:
-                masked = '<token>'
-            source = 'incoming' if token and token.strip() == langflow_api_token else 'env'
-            print(f"[DEBUG] Using Langflow token present: True source={source} masked={masked}")
-        else:
-            print("[DEBUG] Using Langflow token present: False")
-        
-        # Process the message through Langflow
-        ai_response = await process_travel_query(
-            message=request.message,
-            user_id=request.user_id or user_email,
-            langflow_token=langflow_api_token,
-        )
-        
-        return ChatResponse(
-            response=ai_response,
-            user_id=request.user_id or user_email
-        )
-
-    except HTTPException as e:
-        # Propagate intended HTTP status codes such as 401
-        raise e
-    except Exception as e:
-        print(f"[ERROR] Chat endpoint error: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to process chat message: {str(e)}"
-        )
-
-
-@app.get("/_debug")
-async def _debug():
-    """Return masked runtime configuration to help debugging env issues."""
-    run_url = os.getenv('LANGFLOW_RUN_URL')
-    base_url = os.getenv('LANGFLOW_BASE_URL')
-    app_token = os.getenv('LANGFLOW_APPLICATION_TOKEN')
-    return {
-        "allow_anonymous": ALLOW_ANONYMOUS_CHAT,
-        "langflow_run_url_present": bool(run_url),
-        "langflow_run_url": (run_url[:80] + '...') if run_url and len(run_url) > 80 else run_url,
-        "langflow_base_url_present": bool(base_url),
-        "langflow_application_token_present": bool(app_token),
-        "langflow_application_token_masked": (app_token[:8] + '...' + app_token[-8:]) if app_token else None,
-    }
-
-
 # --- Async task queue (in-memory, ephemeral) ---
 # This avoids holding the HTTP request open while upstream may take a long time.
 _tasks: Dict[str, Dict] = {}
@@ -454,3 +336,168 @@ async def chat_result(task_id: str):
         if not task:
             raise HTTPException(status_code=404, detail="Task not found")
         return TaskResult(task_id=task_id, status=task["status"], result=task.get("result"), error=task.get("error"))
+
+
+# --- Langflow integration ---
+async def process_travel_query(message: str, user_id: Optional[str] = None, langflow_token: Optional[str] = None) -> str:
+    """Process travel query using Langflow
+
+    This function will attempt the configured LANGFLOW_RUN_URL first. If that
+    returns 405 or fails, it will try multiple common run endpoints derived
+    from LANGFLOW_BASE_URL and the flow ID (from LANGFLOW_FLOW_ID or the
+    configured URL). This helps when Langflow UI exposes flows at /flow/<id>
+    but the API run endpoint differs.
+    """
+    langflow_base_url = os.getenv('LANGFLOW_BASE_URL', 'http://127.0.0.1:7860')
+    configured_run_url = os.getenv('LANGFLOW_RUN_URL')
+    flow_id_env = os.getenv('LANGFLOW_FLOW_ID')
+
+    def extract_flow_id(url: str) -> Optional[str]:
+        try:
+            parts = url.rstrip('/').split('/')
+            for p in reversed(parts):
+                if '-' in p and len(p) >= 8:
+                    return p
+        except Exception:
+            return None
+        return None
+
+    flow_id_from_url = extract_flow_id(configured_run_url) if configured_run_url else None
+    flow_id = flow_id_env or flow_id_from_url
+
+    candidates = []
+    if configured_run_url:
+        candidates.append(configured_run_url)
+    if flow_id:
+        candidates.extend([
+            f"{langflow_base_url}/api/v1/run/{flow_id}",
+            f"{langflow_base_url}/run/{flow_id}",
+            f"{langflow_base_url}/api/v1/flows/{flow_id}/run",
+            f"{langflow_base_url}/api/flows/{flow_id}/run",
+            f"{langflow_base_url}/flow/{flow_id}/run",
+        ])
+    candidates.append(f"{langflow_base_url}/api/v1/run")
+    candidates.append(f"{langflow_base_url}/run")
+
+    headers = {"Content-Type": "application/json"}
+    if langflow_token:
+        headers["Authorization"] = f"Bearer {langflow_token}"
+
+    payload = {
+        "input_value": message,
+        "output_type": "chat",
+        "input_type": "chat",
+        "tweaks": {}
+    }
+
+    last_error = None
+    async with httpx.AsyncClient(timeout=180.0) as client:
+        for url in candidates:
+            try:
+                print(f"[DEBUG] Trying Langflow endpoint: {url}")
+                resp = await client.post(url, json=payload, headers=headers)
+                print(f"[DEBUG] Response from {url}: {resp.status_code}")
+
+                if resp.status_code == 405:
+                    print(f"[DEBUG] Endpoint {url} returned 405; trying alternate endpoints...")
+                    last_error = f"405 from {url}"
+                    continue
+
+                if resp.status_code != 200:
+                    print(f"[DEBUG] Non-200 response from {url}: {resp.status_code} - {resp.text[:200]}")
+                    last_error = f"{resp.status_code} from {url}: {resp.text[:200]}"
+                    continue
+
+                try:
+                    data = resp.json()
+                except Exception as e:
+                    print(f"[DEBUG] Failed to parse JSON from {url}: {str(e)}")
+                    last_error = f"invalid json from {url}"
+                    continue
+
+                # Common Langflow response shapes
+                if isinstance(data, dict) and "outputs" in data and data["outputs"]:
+                    first_output = data["outputs"][0]
+                    if isinstance(first_output, dict):
+                        inner_outputs = first_output.get("outputs") or first_output.get("data") or []
+                        for output in inner_outputs:
+                            if not isinstance(output, dict):
+                                continue
+                            results = output.get("results") or output.get("data") or {}
+                            if isinstance(results, dict):
+                                if "message" in results and isinstance(results["message"], dict) and "text" in results["message"]:
+                                    return results["message"]["text"]
+                                if "text" in results:
+                                    return str(results["text"])
+                            artifacts = output.get("artifacts") or {}
+                            if isinstance(artifacts, dict) and "message" in artifacts:
+                                return str(artifacts["message"])
+
+                if isinstance(data, dict):
+                    if "result" in data:
+                        return str(data["result"])
+                    if "message" in data:
+                        return str(data["message"])
+
+                return str(data)
+
+            except httpx.ConnectError as ce:
+                print(f"[DEBUG] ConnectError for {url}: {str(ce)}")
+                last_error = f"connect error to {url}: {str(ce)}"
+                continue
+            except httpx.TimeoutException as te:
+                print(f"[DEBUG] Timeout for {url}: {str(te)}")
+                last_error = f"timeout for {url}"
+                continue
+            except Exception as e:
+                print(f"[DEBUG] Unexpected error calling {url}: {str(e)}")
+                last_error = str(e)
+                continue
+
+    hint = (
+        f"I tried multiple Langflow endpoints but none accepted the request. Last error: {last_error}. "
+        f"If your flow is reachable at /flow/<flow-id> in the browser, set LANGFLOW_RUN_URL to the proper run endpoint provided by your Langflow deployment, e.g. '/api/v1/run/<flow-id>' or check Langflow docs for the correct API path."
+    )
+    return f"I'm having trouble processing your request right now. Langflow returned errors. {hint}"
+
+
+@app.post("/chat", response_model=ChatResponse)
+async def chat_with_ai(request: ChatRequest, token: Optional[str] = Depends(parse_bearer_token)):
+    """Main chat endpoint for real-time AI interactions"""
+    # Determine authentication and token source
+    user_email: Optional[str] = None
+    langflow_api_token: Optional[str] = None
+    
+    if token:
+        try:
+            # Try to decode as JWT first
+            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+            user_email = payload.get("sub") or payload.get("email")
+        except JWTError:
+            # If JWT decode fails, check if it's a Langflow API token
+            raw = token.strip()
+            if raw.startswith("AstraCS:") or raw.lower().startswith("astracs:"):
+                langflow_api_token = raw
+            else:
+                print("[DEBUG] Token failed JWT decode and is not an Astra token; using configured application token for Langflow")
+    elif not ALLOW_ANONYMOUS_CHAT:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    
+    # Use environment token if no user-provided token
+    env_langflow_token = os.getenv('LANGFLOW_APPLICATION_TOKEN')
+    if not langflow_api_token and env_langflow_token:
+        langflow_api_token = env_langflow_token
+    
+    # Process the travel query
+    try:
+        response_text = await process_travel_query(
+            message=request.message, 
+            user_id=request.user_id or user_email, 
+            langflow_token=langflow_api_token
+        )
+        
+        return ChatResponse(response=response_text, user_id=request.user_id or user_email)
+        
+    except Exception as e:
+        print(f"[ERROR] Chat processing error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to process chat message: {str(e)}")

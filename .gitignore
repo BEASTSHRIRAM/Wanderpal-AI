@@ -211,3 +211,4 @@ Backend/.env
 Backend/__pycache__/*
 
 wanderpalcode/src/theme/*
+Backend/Trip Planning Agent.json
