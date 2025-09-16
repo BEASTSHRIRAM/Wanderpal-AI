@@ -65,13 +65,13 @@ This project is built to demonstrate a modern, asynchronous architecture for han
 
 ## 📁 Project Structure
 
-This repository uses a clean monorepo-style structure, separating the three main services.
-/Wanderpal-Project/
-├── 📁 backend/         # The FastAPI server (main.py, etc.)
-├── 📁 frontend/         # The React/Vite web app (Chat.tsx, etc.)
-├── 📁 langflow_flow/    # The JSON blueprint for the AI agent
-├── .gitignore
-└── README.md
+### This repository uses a clean monorepo-style structure, separating the three main services.
+### /Wanderpal-Project/
+#### ├── 📁 backend/         # The FastAPI server (main.py, etc.)
+#### ├── 📁 frontend/         # The React/Vite web app (Chat.tsx, etc.)
+#### ├── 📁 langflow_flow/    # The JSON blueprint for the AI agent
+#### ├── .gitignore
+#### └── README.md
 ---
 
 ## 🚀 Local Setup Guide
