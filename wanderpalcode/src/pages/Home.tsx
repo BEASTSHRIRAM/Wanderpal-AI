@@ -1,5 +1,3 @@
-// ...existing code...
-// Already protected with useEffect checking for token and redirecting to /signin
 import React, { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
@@ -130,15 +128,3 @@ const Home = () => {
 };
 
 export default Home;
-/*
-const Home = () => {
-  const navigate = useNavigate();
-
-  // Redirect to sign in if not authenticated
-  useEffect(() => {
-    const token = localStorage.getItem('token'); // Change key if needed
-    if (!token) {
-      navigate('/signin');
-    }
-  }, [navigate]);
-*/

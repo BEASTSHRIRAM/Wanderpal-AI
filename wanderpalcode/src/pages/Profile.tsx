@@ -4,18 +4,12 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { Badge } from '@/components/ui/badge';
-import { Separator } from '@/components/ui/separator';
 import { 
   User, 
   Mail, 
   Phone, 
-  MapPin, 
-  Bell, 
-  Shield, 
-  CreditCard, 
+  MapPin,  
   Camera,
   Save,
   Edit3
@@ -108,6 +102,7 @@ const Profile = () => {
     }));
   };
 
+// For future functionalities
   const handleNotificationChange = (field: string, value: boolean) => {
     setFormData(prev => ({
       ...prev,
@@ -138,8 +133,7 @@ const Profile = () => {
           last_name: formData.lastName,
           phone: formData.phone,
           email: formData.email,
-          location: formData.location,
-          notifications: formData.notifications
+          location: formData.location // This will still save the settings, even if UI is hidden
         }),
       });
 
@@ -193,7 +187,7 @@ const Profile = () => {
                   <div className="relative mb-4">
                     <Avatar className="h-24 w-24 ring-4 ring-primary/20">
                       <AvatarFallback className="bg-gradient-hero text-white text-2xl">
-                        {formData.firstName[0]}{formData.lastName[0]}
+                        {formData.firstName && formData.lastName ? `${formData.firstName[0]}${formData.lastName[0]}` : <User />}
                       </AvatarFallback>
                     </Avatar>
                     <Button
@@ -209,25 +203,7 @@ const Profile = () => {
                     {formData.firstName} {formData.lastName}
                   </h3>
                   <p className="text-muted-foreground mb-4">{formData.email}</p>
-                  
-                  <Badge variant="secondary" className="mb-4">
-                    Premium Member
-                  </Badge>
-                  
-                  <div className="w-full space-y-2 text-sm">
-                    <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">Trips Planned</span>
-                      <span className="font-semibold">12</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">Hotels Booked</span>
-                      <span className="font-semibold">8</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">Member Since</span>
-                      <span className="font-semibold">Jan 2024</span>
-                    </div>
-                  </div>
+
                 </div>
               </CardContent>
             </Card>
@@ -298,7 +274,7 @@ const Profile = () => {
                       type="email"
                       value={formData.email}
                       onChange={(e) => handleInputChange('email', e.target.value)}
-                      disabled={!isEditing}
+                      disabled={!isEditing} // Email field is often not editable, but we'll leave it as is per your code
                       className="pl-10 input-focus"
                     />
                   </div>
@@ -333,112 +309,21 @@ const Profile = () => {
                 </div>
               </CardContent>
             </Card>
-
-            {/* Notification Preferences */}
-            <Card className="card-premium animate-scale-in" style={{ animationDelay: '0.2s' }}>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Bell className="h-5 w-5 text-primary" />
-                  Notification Preferences
-                </CardTitle>
-                <CardDescription>
-                  Choose what notifications you'd like to receive
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label className="font-medium">Deal Alerts</Label>
-                    <p className="text-sm text-muted-foreground">
-                      Get notified about special hotel deals and discounts
-                    </p>
-                  </div>
-                  <Switch
-                    checked={formData.notifications.deals}
-                    onCheckedChange={(value) => handleNotificationChange('deals', value)}
-                  />
-                </div>
-                
-                <Separator />
-                
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label className="font-medium">AI Recommendations</Label>
-                    <p className="text-sm text-muted-foreground">
-                      Receive personalized travel recommendations
-                    </p>
-                  </div>
-                  <Switch
-                    checked={formData.notifications.recommendations}
-                    onCheckedChange={(value) => handleNotificationChange('recommendations', value)}
-                  />
-                </div>
-                
-                <Separator />
-                
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label className="font-medium">Booking Updates</Label>
-                    <p className="text-sm text-muted-foreground">
-                      Important updates about your reservations
-                    </p>
-                  </div>
-                  <Switch
-                    checked={formData.notifications.bookingUpdates}
-                    onCheckedChange={(value) => handleNotificationChange('bookingUpdates', value)}
-                  />
-                </div>
-                
-                <Separator />
-                
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label className="font-medium">Marketing</Label>
-                    <p className="text-sm text-muted-foreground">
-                      News, tips, and product updates
-                    </p>
-                  </div>
-                  <Switch
-                    checked={formData.notifications.marketing}
-                    onCheckedChange={(value) => handleNotificationChange('marketing', value)}
-                  />
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Security & Privacy */}
-            <Card className="card-premium animate-scale-in" style={{ animationDelay: '0.3s' }}>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Shield className="h-5 w-5 text-primary" />
-                  Security & Privacy
-                </CardTitle>
-                <CardDescription>
-                  Manage your account security settings
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <Button variant="outline" className="w-full justify-start">
-                  <Shield className="h-4 w-4 mr-2" />
-                  Change Password
-                </Button>
-                <Button variant="outline" className="w-full justify-start">
-                  <CreditCard className="h-4 w-4 mr-2" />
-                  Payment Methods
-                </Button>
-                <Button
-                  variant="outline"
-                  className="w-full justify-start text-destructive hover:text-destructive"
-                  onClick={() => {
-                    localStorage.removeItem('token');
-                    navigate('/');
-                  }}
-                >
-                  <User className="h-4 w-4 mr-2" />
-                  Sign out
-                </Button>
-              </CardContent>
-            </Card>
+            
+            <Button
+              variant="outline"
+              className="w-full justify-start text-destructive hover:text-destructive animate-scale-in" 
+              style={{ animationDelay: '0.2s' }}
+              onClick={() => {
+                localStorage.removeItem('token');
+                localStorage.removeItem('lastActiveChatId'); // Also clear the last active chat on sign out
+                navigate('/');
+              }}
+            >
+              <User className="h-4 w-4 mr-2" />
+              Sign out
+            </Button>
+            
           </div>
         </div>
         )}
