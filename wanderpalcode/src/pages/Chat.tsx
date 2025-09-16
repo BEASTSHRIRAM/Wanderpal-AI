@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,7 +15,9 @@ import {
   Star, 
   Shield,
   Loader2,
-  ExternalLink
+  ExternalLink,
+  MessageSquarePlus,
+  MessageSquare
 } from 'lucide-react';
 
 interface Message {
@@ -45,7 +47,17 @@ interface HotelCard {
   whyChosen: string;
   bookingLink: string;
 }
-
+interface Conversation {
+  id: string;
+  title: string;
+  created_at: string;
+}
+const DEFAULT_WELCOME_MESSAGE: Message = {
+  id: '1',
+  type: 'ai',
+  content: "Hi! I'm your AI travel advisor. I can help you find the perfect hotels, plan your trips, and answer any travel questions. What can I help you with today?",
+  timestamp: new Date(),
+};
 const Chat = () => {
   const navigate = useNavigate();
   useEffect(() => {
@@ -64,9 +76,23 @@ const Chat = () => {
     }
   ]);
   
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+// This automatically loads the last active chat ID from the browser's storage
+  const [currentConversationId, setCurrentConversationId] = useState<string | null>(
+    () => localStorage.getItem("lastActiveChatId")
+  );
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  // NEW useEffect: This hook saves the active chat ID to storage whenever it changes.
+  useEffect(() => {
+    if (currentConversationId) {
+      localStorage.setItem("lastActiveChatId", currentConversationId);
+    } else {
+      // If the user clicks "New Chat" (so the ID becomes null), remove it from storage.
+      localStorage.removeItem("lastActiveChatId");
+    }
+  }, [currentConversationId]);
 
   const agents: AgentWorkflow[] = [
     {
@@ -124,9 +150,94 @@ const Chat = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
+
+  // This hook runs once when the component first loads
+
   useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
+    // Only scroll if we are not loading. This stops the page from jumping
+    // while the user is trying to read the newly loaded history.
+    if (!isLoading) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages, isLoading]); // Dependency array updated
+
+// function to fetch the list of conversations for the sidebar
+  const fetchConversations = useCallback(async () => {
+    const token = localStorage.getItem('token');
+    if (!token) return; // Not logged in, can't fetch convos
+
+    try {
+      // Calls your new GET /conversations endpoint
+      const response = await fetch('http://localhost:8000/conversations', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!response.ok) {
+        console.error('Could not fetch conversations');
+        return;
+      }
+      const data = await response.json();
+      setConversations(data.conversations || []); // Saves the list to our new state
+    } catch (err) {
+      console.error('Failed to fetch conversations:', err);
+    }
+  }, []); // useCallback ensures this function doesn't change on every render
+
+  // This effect runs ONCE when the page loads to populate the sidebar
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (token) {
+      fetchConversations();
+    }
+  }, [fetchConversations]); // Runs once on mount
+
+  // NEW: This effect runs EVERY TIME the user clicks a different chat
+  useEffect(() => {
+    const fetchHistory = async (convoId: string) => {
+      const token = localStorage.getItem('token');
+      if (!token) return;
+
+      setIsLoading(true); // Show loader while fetching this chat's history
+      try {
+        // Calls your new GET /chat/history/{id} endpoint
+        const response = await fetch(`http://localhost:8000/chat/history/${convoId}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        if (!response.ok) {
+          console.error('Could not fetch chat history');
+          setMessages([DEFAULT_WELCOME_MESSAGE]); // Reset to default on error
+          return;
+        }
+
+        const data = await response.json();
+        if (data.history && data.history.length > 0) {
+          // Format the DB data into the React Message interface
+          const loadedMessages: Message[] = data.history.map((msg: any) => ({
+            id: msg.id,
+            type: msg.role,
+            content: msg.content,
+            timestamp: new Date(msg.timestamp)
+          }));
+          setMessages(loadedMessages); // Load the messages into the window
+        } else {
+          // This chat is empty, just show the welcome message
+          setMessages([DEFAULT_WELCOME_MESSAGE]);
+        }
+      } catch (err) {
+        console.error('Error fetching chat history:', err);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    if (currentConversationId) {
+      // If user clicked a real conversation, fetch its history
+      fetchHistory(currentConversationId);
+    } else {
+      // If user clicked "New Chat" (so the ID is null), just reset the messages
+      setMessages([DEFAULT_WELCOME_MESSAGE]);
+    }
+  }, [currentConversationId]); // This is the key: it re-runs ANY time currentConversationId changes
 
   const simulateAgentWorkflow = async () => {
     const workflowAgents = [...agents];
@@ -164,7 +275,66 @@ const Chat = () => {
 
     setIsLoading(false);
   };
+    const pollForResult = (taskId: string, token: string | null) => {
+    const intervalId = setInterval(async () => {
+      try {
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (token) headers['Authorization'] = `Bearer ${token}`;
 
+        const response = await fetch(`http://localhost:8000/chat/result/${taskId}`, {
+          method: 'GET',
+          headers: headers,
+        });
+
+        if (!response.ok) {
+          throw new Error(`Failed to fetch task status: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+
+        if (data.status === 'done') {
+          // --- TASK IS COMPLETE ---
+          clearInterval(intervalId); // Stop polling
+          const aiMessage: Message = {
+            id: (Date.now() + 1).toString(),
+            type: 'ai',
+            content: data.result,
+            timestamp: new Date(),
+          };
+          setMessages(prev => [...prev, aiMessage]);
+          setIsLoading(false);
+
+        } else if (data.status === 'error') {
+          // --- TASK FAILED ---
+          clearInterval(intervalId); // Stop polling
+          const errorMessage: Message = {
+            id: (Date.now() + 1).toString(),
+            type: 'ai',
+            content: `I'm sorry, I encountered an error: ${data.error}`,
+            timestamp: new Date(),
+          };
+          setMessages(prev => [...prev, errorMessage]);
+          setIsLoading(false);
+
+        } 
+        // If status is "pending", do nothing and let the interval run again.
+
+      } catch (err) {
+        console.error('Polling error:', err);
+        clearInterval(intervalId); // Stop polling on any network error
+        const errorMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          type: 'ai',
+          content: `I'm sorry, I lost connection: ${err instanceof Error ? err.message : 'Unknown error'}.`,
+          timestamp: new Date(),
+        };
+        setMessages(prev => [...prev, errorMessage]);
+        setIsLoading(false);
+      }
+    }, 3000); // Poll every 3 seconds
+  };
+
+// Message handler
   const handleSendMessage = async () => {
     if (!inputValue.trim()) return;
 
@@ -174,76 +344,65 @@ const Chat = () => {
       content: inputValue,
       timestamp: new Date(),
     };
+    
+    // If this is the *first* message (content is just the default), replace it. Otherwise, add to it.
+    setMessages(prev => 
+      prev.length === 1 && prev[0].id === '1' ? [userMessage] : [...prev, userMessage]
+    );
 
-    setMessages(prev => [...prev, userMessage]);
     const messageText = inputValue;
     setInputValue('');
     setIsLoading(true);
 
     try {
-      // Try with token if present, otherwise send anonymously
       const token = localStorage.getItem('token');
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (token) headers['Authorization'] = `Bearer ${token}`;
 
-      // Send message to backend
-      let response = await fetch('http://localhost:8000/chat', {
+      // 1. Send the request to /chat/async, passing the CURRENT conversation ID
+      //    (On the first message, this will correctly be 'null')
+      const asyncResponse = await fetch('http://localhost:8000/chat/async', {
         method: 'POST',
         headers,
-        body: JSON.stringify({ message: messageText, user_id: null }),
-        signal: AbortSignal.timeout(180000), // 3 minutes timeout
+        body: JSON.stringify({ 
+          message: messageText, 
+          user_id: null, 
+          conversation_id: currentConversationId // <-- Sends the current ID (or null)
+        }),
       });
 
-      // If we got 401 and we had sent a token, retry without auth (backend may accept anonymous)
-      if (response.status === 401 && token) {
-        console.info('Auth failed, retrying anonymously');
-        const anonHeaders = { 'Content-Type': 'application/json' };
-        response = await fetch('http://localhost:8000/chat', {
-          method: 'POST',
-          headers: anonHeaders,
-          body: JSON.stringify({ message: messageText, user_id: null }),
-          signal: AbortSignal.timeout(180000), // 3 minutes timeout
-        });
+      if (!asyncResponse.ok) {
+        const errorData = await asyncResponse.json();
+        throw new Error(errorData.detail || `HTTP Error: ${asyncResponse.statusText}`);
       }
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`HTTP ${response.status}: ${errorText}`);
-      }
+      // 2. Get BOTH the task_id AND the conversation_id back from the backend.
+      const taskData = await asyncResponse.json();
+      const { task_id, conversation_id: newConvoId } = taskData; // This is the ID the backend used (either the old one or a new one)
 
-      const data = await response.json();
+      if (!task_id || !newConvoId) {
+        throw new Error('Failed to create an async task: Invalid response from server.');
+      }
       
-      // Create AI response message
-      const aiMessage: Message = {
+      // If the state was 'null' (a new chat), update the state to the NEW ID
+      // that the backend just created.
+      if (currentConversationId === null) {
+        setCurrentConversationId(newConvoId); // <-- This saves the new ID to the state
+        fetchConversations(); // <-- This refreshes the sidebar to show the new chat
+      }
+
+      // 4. Start polling for the result as normal.
+      pollForResult(task_id, token);
+
+    } catch (err) {
+      console.error('Failed to start chat task:', err);
+      const errorMessage: Message = {
         id: (Date.now() + 1).toString(),
         type: 'ai',
-        content: data.response || "I'm sorry, I didn't receive a proper response. Please try again.",
+        content: `I'm sorry, I couldn't start your request: ${err instanceof Error ? err.message : 'Unknown error'}.`,
         timestamp: new Date(),
       };
-
-      setMessages(prev => [...prev, aiMessage]);
-
-    } catch (error) {
-      console.error('Chat error:', error);
-      
-      // Create error response with more specific messaging
-      let errorMessage = "I'm sorry, I encountered an error. Please try again.";
-      
-      if (error instanceof TypeError && error.message.includes('fetch')) {
-        errorMessage = "I'm having trouble connecting to the server. Please check if the backend is running on http://localhost:8000";
-      } else if (error instanceof Error) {
-        errorMessage = `I encountered an error: ${error.message}. Please try again.`;
-      }
-      
-      const errorMsg: Message = {
-        id: (Date.now() + 1).toString(),
-        type: 'ai',
-        content: errorMessage,
-        timestamp: new Date(),
-      };
-
-      setMessages(prev => [...prev, errorMsg]);
-    } finally {
+      setMessages(prev => [...prev, errorMessage]);
       setIsLoading(false);
     }
   };
@@ -348,117 +507,154 @@ const Chat = () => {
     </div>
   );
 
-  return (
-    <div className="min-h-screen flex flex-col">
-      {/* Header */}
-      <div className="border-b border-border bg-card/50 backdrop-blur-md sticky top-16 z-40">
-        <div className="max-w-4xl mx-auto px-4 py-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-gradient-hero rounded-lg flex items-center justify-center">
-              <Bot className="h-6 w-6 text-white" />
-            </div>
-            <div>
-              <h1 className="text-xl font-semibold">AI Travel Advisor</h1>
-              <p className="text-sm text-muted-foreground">Get personalized hotel recommendations</p>
+return (
+    <div className="min-h-screen flex h-screen">
+      
+      {}
+      <nav className="w-64 bg-card border-r border-border p-4 flex flex-col md:flex">
+        <Button 
+          variant="outline" 
+          className="w-full justify-start gap-2"
+          onClick={() => setCurrentConversationId(null)} // Clicking "New Chat" just sets the ID to null
+        >
+          <MessageSquarePlus className="h-4 w-4" />
+          New Chat
+        </Button>
+        
+        {/* List of Recent Chats */}
+        <div className="mt-4 flex-1 overflow-y-auto">
+          <p className="text-sm font-medium text-muted-foreground px-2 mb-2">Recent</p>
+          <div className="space-y-1">
+            {conversations.map((convo) => (
+              <Button
+                key={convo.id}
+                variant={currentConversationId === convo.id ? "secondary" : "ghost"}
+                className="w-full justify-start gap-2 truncate"
+                onClick={() => setCurrentConversationId(convo.id)}
+              >
+                <MessageSquare className="h-4 w-4" />
+                <span className="truncate">{convo.title}</span>
+              </Button>
+            ))}
+          </div>
+        </div>
+      </nav>
+
+      {/* === MAIN CHAT WINDOW (Your existing UI, wrapped in 'main') === */}
+      <main className="flex-1 flex flex-col h-screen">
+        {/* Header */}
+        <div className="border-b border-border bg-card/50 backdrop-blur-md sticky top-16 z-40">
+          <div className="max-w-4xl mx-auto px-4 py-4">
+            {/* ... (Your existing Header JSX is unchanged) ... */}
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-gradient-hero rounded-lg flex items-center justify-center">
+                <Bot className="h-6 w-6 text-white" />
+              </div>
+              <div>
+                <h1 className="text-xl font-semibold">AI Travel Advisor</h1>
+                <p className="text-sm text-muted-foreground">Get personalized hotel recommendations</p>
+              </div>
             </div>
           </div>
         </div>
-      </div>
 
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto">
-        <div className="max-w-4xl mx-auto px-4 py-6 space-y-6">
-          {messages.map((message) => (
-            <div
-              key={message.id}
-              className={`flex gap-4 animate-fade-in ${
-                message.type === 'user' ? 'justify-end' : 'justify-start'
-              }`}
-            >
-              {message.type === 'ai' && (
+        {/* Messages */}
+        <div className="flex-1 overflow-y-auto">
+          <div className="max-w-4xl mx-auto px-4 py-6 space-y-6">
+            {/* ... (Your existing Messages map logic is unchanged) ... */}
+            {messages.map((message) => (
+              <div
+                key={message.id}
+                className={`flex gap-4 animate-fade-in ${
+                  message.type === 'user' ? 'justify-end' : 'justify-start'
+                }`}
+              >
+                {message.type === 'ai' && (
+                  <Avatar className="h-8 w-8 ring-2 ring-primary/20">
+                    <AvatarFallback className="bg-gradient-hero text-white">
+                      <Bot className="h-4 w-4" />
+                    </AvatarFallback>
+                  </Avatar>
+                )}
+                
+                <div className={`max-w-2xl ${message.type === 'user' ? 'order-first' : ''}`}>
+                  <div
+                    className={`p-4 rounded-2xl ${
+                      message.type === 'user'
+                        ? 'bg-gradient-hero text-white ml-auto'
+                        : 'bg-card border border-border'
+                    }`}
+                  >
+                    <p className="text-sm md:text-base whitespace-pre-wrap">{message.content}</p>
+                  </div>
+                  
+                  {message.agents && (
+                    <AgentWorkflowDisplay agents={message.agents} />
+                  )}
+                  {message.hotelCards && (
+                    <HotelCardDisplay hotels={message.hotelCards} />
+                  )}
+                  
+                  <p className="text-xs text-muted-foreground mt-2">
+                    {message.timestamp.toLocaleTimeString()}
+                  </p>
+                </div>
+
+                {message.type === 'user' && (
+                  <Avatar className="h-8 w-8 ring-2 ring-primary/20">
+                    <AvatarFallback className="bg-muted">
+                      <User className="h-4 w-4" />
+                    </AvatarFallback>
+                  </Avatar>
+                )}
+              </div>
+            ))}
+            
+            {isLoading && (
+              <div className="flex gap-4 justify-start animate-fade-in">
+                 {}
                 <Avatar className="h-8 w-8 ring-2 ring-primary/20">
                   <AvatarFallback className="bg-gradient-hero text-white">
                     <Bot className="h-4 w-4" />
                   </AvatarFallback>
                 </Avatar>
-              )}
-              
-              <div className={`max-w-2xl ${message.type === 'user' ? 'order-first' : ''}`}>
-                <div
-                  className={`p-4 rounded-2xl ${
-                    message.type === 'user'
-                      ? 'bg-gradient-hero text-white ml-auto'
-                      : 'bg-card border border-border'
-                  }`}
-                >
-                  <p className="text-sm md:text-base whitespace-pre-wrap">{message.content}</p>
-                </div>
-                
-                {message.agents && (
-                  <AgentWorkflowDisplay agents={message.agents} />
-                )}
-                
-                {message.hotelCards && (
-                  <HotelCardDisplay hotels={message.hotelCards} />
-                )}
-                
-                <p className="text-xs text-muted-foreground mt-2">
-                  {message.timestamp.toLocaleTimeString()}
-                </p>
-              </div>
-
-              {message.type === 'user' && (
-                <Avatar className="h-8 w-8 ring-2 ring-primary/20">
-                  <AvatarFallback className="bg-muted">
-                    <User className="h-4 w-4" />
-                  </AvatarFallback>
-                </Avatar>
-              )}
-            </div>
-          ))}
-          
-          {isLoading && (
-            <div className="flex gap-4 justify-start animate-fade-in">
-              <Avatar className="h-8 w-8 ring-2 ring-primary/20">
-                <AvatarFallback className="bg-gradient-hero text-white">
-                  <Bot className="h-4 w-4" />
-                </AvatarFallback>
-              </Avatar>
-              <div className="bg-card border border-border p-4 rounded-2xl">
-                <div className="flex items-center gap-2">
-                  <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                  <span className="text-sm text-muted-foreground">AI is thinking...</span>
+                <div className="bg-card border border-border p-4 rounded-2xl">
+                  <div className="flex items-center gap-2">
+                    <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                    <span className="text-sm text-muted-foreground">AI is thinking...</span>
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
-          
-          <div ref={messagesEndRef} />
-        </div>
-      </div>
-
-      {/* Input */}
-      <div className="border-t border-border bg-card/50 backdrop-blur-md sticky bottom-0">
-        <div className="max-w-4xl mx-auto px-4 py-4">
-          <div className="flex gap-3">
-            <Input
-              value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
-              onKeyPress={handleKeyPress}
-              placeholder="Ask me about hotels, destinations, or travel planning..."
-              className="flex-1 input-focus"
-              disabled={isLoading}
-            />
-            <Button
-              onClick={handleSendMessage}
-              disabled={!inputValue.trim() || isLoading}
-              className="btn-gradient"
-            >
-              <Send className="h-4 w-4" />
-            </Button>
+            )}
+            
+            <div ref={messagesEndRef} />
           </div>
         </div>
-      </div>
+
+        {/* Input */}
+        <div className="border-t border-border bg-card/50 backdrop-blur-md sticky bottom-0">
+          <div className="max-w-4xl mx-auto px-4 py-4">
+             {/* ... (Your existing Input JSX is unchanged) ... */}
+            <div className="flex gap-3">
+              <Input
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+                onKeyPress={handleKeyPress}
+                placeholder="Ask me about hotels, destinations, or travel planning..."
+                className="flex-1 input-focus"
+                disabled={isLoading}
+              />
+              <Button
+                onClick={handleSendMessage}
+                disabled={!inputValue.trim() || isLoading}
+                className="btn-gradient"
+              >
+                <Send className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        </div>
+      </main>
     </div>
   );
 };

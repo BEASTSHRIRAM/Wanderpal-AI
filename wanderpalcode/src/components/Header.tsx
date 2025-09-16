@@ -24,7 +24,7 @@ const Header = () => {
     { name: 'Home', href: '/home', icon: Home },
   // { name: 'Search Hotels', href: '/search', icon: Search },
     { name: 'AI Chat', href: '/chat', icon: MessageSquare },
-    { name: 'My Trips', href: '/trips', icon: BookOpen },
+    { name: 'Trending', href: '/trips', icon: BookOpen },
     // { name: 'Profile', href: '/profile', icon: User },
   ];
 

@@ -255,11 +255,46 @@ async def trending(lat: float, lon: float, radius: int = 30000):
             })
     return {"trending": trending}
 
+@app.get("/chat/history/{conversation_id}")
+async def get_chat_history(conversation_id: str, user: dict = Depends(get_current_user)):
+    """
+    Fetches the message history for a specific conversation ID.
+    Ensures the conversation belongs to the authenticated user.
+    """
+    user_email = user.get("sub")
+    if not user_email:
+        raise HTTPException(status_code=403, detail="Invalid user token")
+
+    # Security Check: First, make sure this conversation belongs to this user
+    convo = await db["conversations"].find_one({
+        "_id": conversation_id,
+        "user_email": user_email
+    })
+    if not convo:
+        raise HTTPException(status_code=404, detail="Conversation not found or access denied")
+
+    # Now, get all messages for that conversation, sorted oldest first
+    history_cursor = db["messages"].find({
+        "conversation_id": conversation_id
+    }).sort("timestamp", 1)  # 1 = ascending order
+    
+    history_list = []
+    async for message in history_cursor:
+        history_list.append({
+            "id": str(message["_id"]),
+            "role": message["role"],
+            "content": message["content"],
+            "timestamp": message["timestamp"].isoformat()
+        })
+        
+    return {"history": history_list}
+
 
 # --- Chat Models ---
 class ChatRequest(BaseModel):
     message: str
     user_id: Optional[str] = None
+    conversation_id: Optional[str] = None # <-- ADD THIS
 
 
 class ChatResponse(BaseModel):
@@ -269,6 +304,7 @@ class ChatResponse(BaseModel):
 
 class TaskCreated(BaseModel):
     task_id: str
+    conversation_id: str # <-- ADD THIS
 
 
 class TaskResult(BaseModel):
@@ -284,24 +320,60 @@ _tasks: Dict[str, Dict] = {}
 _tasks_lock = asyncio.Lock()
 
 
-async def _run_langflow_task(task_id: str, message: str, user_id: Optional[str], langflow_token: Optional[str]):
+# === REPLACE your old _run_langflow_task WITH THIS NEW VERSION ===
+async def _run_langflow_task(
+    task_id: str, 
+    message: str, 
+    user_id: Optional[str], 
+    langflow_token: Optional[str],
+    conversation_id: str  # <-- ADDED PARAMETER
+):
+    """Runs the Langflow query and saves the AI response to the DB."""
     try:
-        result = await process_travel_query(message=message, user_id=user_id, langflow_token=langflow_token)
-        async with _tasks_lock:
-            _tasks[task_id]["status"] = "done"
-            _tasks[task_id]["result"] = result
-    except Exception as e:
-        async with _tasks_lock:
-            _tasks[task_id]["status"] = "error"
+        # 1. Get the result from the agent
+        result = await process_travel_query(message=message, user_id=user_id, langflow_token=langflow_token) 
+
+        # 2. Save the AI's response to the correct conversation in the DB
+        try:
+            if user_id:  # user_id is the user's email
+                ai_message_doc = {
+                    "user_email": user_id,
+                    "conversation_id": conversation_id, # <-- ADD THIS FIELD
+                    "role": "ai",
+                    "content": result,
+                    "timestamp": datetime.now(timezone.utc)
+                }
+                await db["messages"].insert_one(ai_message_doc)
+            
+            # Also update the "last_modified" time for this conversation
+            await db["conversations"].update_one(
+                {"_id": conversation_id},
+                {"$set": {"last_modified": datetime.now(timezone.utc)}}
+            )
+
+        except Exception as e:
+            print(f"[ERROR] Failed to save AI message to DB: {e}")
+
+        # 3. Mark the polling task as "done"
+        async with _tasks_lock: 
+            _tasks[task_id]["status"] = "done" 
+            _tasks[task_id]["result"] = result 
+
+    except Exception as e: 
+        async with _tasks_lock: 
+            _tasks[task_id]["status"] = "error" 
             _tasks[task_id]["error"] = str(e)
 
 
 @app.post("/chat/async", response_model=TaskCreated)
 async def chat_with_ai_async(request: ChatRequest, token: Optional[str] = Depends(parse_bearer_token)):
-    """Enqueue the chat request and return a task_id immediately. Poll `/chat/result/{task_id}` to get the result."""
-    # Determine token source like in the synchronous endpoint
+    """
+    Enqueues a chat request. Handles new vs. existing conversations
+    and intelligently updates conversation titles.
+    """
     user_email: Optional[str] = None
     langflow_api_token: Optional[str] = None
+
     if token:
         try:
             payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
@@ -311,7 +383,7 @@ async def chat_with_ai_async(request: ChatRequest, token: Optional[str] = Depend
             if raw.startswith("AstraCS:") or raw.lower().startswith("astracs:"):
                 langflow_api_token = raw
             else:
-                print("[DEBUG] Incoming bearer token failed JWT decode and is not an Astra token; using configured application token for Langflow upstream.")
+                print("[DEBUG] Token failed JWT decode, using app token.")
     elif not ALLOW_ANONYMOUS_CHAT:
         raise HTTPException(status_code=401, detail="Authentication required")
 
@@ -319,14 +391,92 @@ async def chat_with_ai_async(request: ChatRequest, token: Optional[str] = Depend
     if not langflow_api_token and env_langflow_token:
         langflow_api_token = env_langflow_token
 
+    if not user_email and not ALLOW_ANONYMOUS_CHAT:
+         raise HTTPException(status_code=401, detail="Authentication required")
+
+    now = datetime.now(timezone.utc)
+    convo_id = request.conversation_id
+    simple_greetings = ["hi", "hello", "hey", "yo", "good morning", "good afternoon", "howdy"]
+
+    try:
+        if not convo_id:
+            # === THIS IS A NEW CHAT ===
+            convo_id = str(uuid.uuid4()) # Create a new ID
+            
+            # If the first message is a simple greeting, set the title to "New Chat"
+            # Otherwise, use the prompt as the title.
+            title_message = request.message.lower().strip(" .!?")
+            title = "New Chat"
+            if title_message not in simple_greetings and len(title_message) > 4:
+                 title = request.message[:50] + ("..." if len(request.message) > 50 else "")
+
+            new_convo_doc = {
+                "_id": convo_id,
+                "user_email": user_email,
+                "title": title,
+                "created_at": now,
+                "last_modified": now
+            }
+            await db["conversations"].insert_one(new_convo_doc)
+        
+        else:
+            # === THIS IS AN EXISTING CHAT ===
+            # Check if we need to update the title from "New Chat" to something better.
+            convo = await db["conversations"].find_one({"_id": convo_id})
+            new_title = None
+            
+            # If the title is still the generic placeholder...
+            if convo and convo.get("title") == "New Chat":
+                # ...and the new message is NOT a simple greeting...
+                prompt_message = request.message.lower().strip(" .!?")
+                if prompt_message not in simple_greetings and len(prompt_message) > 10:
+                    # ...then update the title to this first real prompt!
+                    new_title = request.message[:50] + ("..." if len(request.message) > 50 else "")
+
+            if new_title:
+                # Update the title AND the timestamp
+                await db["conversations"].update_one(
+                    {"_id": convo_id},
+                    {"$set": {"title": new_title, "last_modified": now}}
+                )
+            else:
+                # Just update the timestamp
+                await db["conversations"].update_one(
+                    {"_id": convo_id},
+                    {"$set": {"last_modified": now}}
+                )
+
+        # Save the user's message to the DB, linked to the conversation
+        if user_email:
+            user_message_doc = {
+                "user_email": user_email,
+                "conversation_id": convo_id,
+                "role": "user",
+                "content": request.message,
+                "timestamp": now
+            }
+            await db["messages"].insert_one(user_message_doc)
+
+    except Exception as e:
+        print(f"[ERROR] Failed to save message/convo to DB: {e}")
+        raise HTTPException(status_code=500, detail=f"Database error: {e}")
+
+
+    # Now, create and schedule the background task
     task_id = str(uuid.uuid4())
     async with _tasks_lock:
         _tasks[task_id] = {"status": "pending", "result": None, "error": None}
 
-    # Schedule background processing
-    asyncio.create_task(_run_langflow_task(task_id, request.message, request.user_id or user_email, langflow_api_token))
+    asyncio.create_task(_run_langflow_task(
+        task_id=task_id, 
+        message=request.message, 
+        user_id=user_email, 
+        langflow_token=langflow_api_token,
+        conversation_id=convo_id
+    ))
 
-    return TaskCreated(task_id=task_id)
+    # Return BOTH the task_id (for polling) and the convo_id (for the frontend state)
+    return TaskCreated(task_id=task_id, conversation_id=convo_id)
 
 
 @app.get("/chat/result/{task_id}", response_model=TaskResult)
@@ -336,6 +486,30 @@ async def chat_result(task_id: str):
         if not task:
             raise HTTPException(status_code=404, detail="Task not found")
         return TaskResult(task_id=task_id, status=task["status"], result=task.get("result"), error=task.get("error"))
+    
+@app.get("/conversations")
+async def get_all_conversations(user: dict = Depends(get_current_user)):
+    """
+    Fetches the list of all conversations for the sidebar for the authenticated user.
+    """
+    user_email = user.get("sub")
+    if not user_email:
+        raise HTTPException(status_code=403, detail="Invalid user token")
+
+    # Find all conversations for this user, sort by the last modified (most recent first)
+    convo_cursor = db["conversations"].find(
+        {"user_email": user_email}
+    ).sort("last_modified", -1)  # -1 = descending order
+
+    convo_list = []
+    async for convo in convo_cursor:
+        convo_list.append({
+            "id": str(convo["_id"]),
+            "title": convo.get("title", "New Chat"),
+            "created_at": convo.get("created_at")
+        })
+        
+    return {"conversations": convo_list}
 
 
 # --- Langflow integration ---
