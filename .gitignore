@@ -1,4 +1,4 @@
-<<<<<<< HEAD
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
@@ -211,4 +211,3 @@ Backend/.env
 Backend/__pycache__/*
 
 wanderpalcode/src/theme/*
-Backend/Trip Planning Agent.json
