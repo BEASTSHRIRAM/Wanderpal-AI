@@ -365,34 +365,63 @@ async def _run_langflow_task(
             _tasks[task_id]["error"] = str(e)
 
 
+# === REPLACE your old /chat/async function (lines 335-467) WITH THIS NEW VERSION ===
+
+# === REPLACE your old /chat/async function (lines 335-467) WITH THIS NEW VERSION ===
+
 @app.post("/chat/async", response_model=TaskCreated)
 async def chat_with_ai_async(request: ChatRequest, token: Optional[str] = Depends(parse_bearer_token)):
     """
     Enqueues a chat request. Handles new vs. existing conversations
     and intelligently updates conversation titles.
+    This version correctly handles expired tokens.
     """
     user_email: Optional[str] = None
     langflow_api_token: Optional[str] = None
+    
+    auth_error = HTTPException(
+            status_code=401,
+            detail="Invalid or expired token. Please sign in again.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
     if token:
+        # A token was provided. It MUST be a valid user JWT.
         try:
             payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
             user_email = payload.get("sub") or payload.get("email")
+            if user_email is None:
+                # Token is valid but doesn't contain the user email in 'sub'
+                raise auth_error
         except JWTError:
-            raw = token.strip()
-            if raw.startswith("AstraCS:") or raw.lower().startswith("astracs:"):
-                langflow_api_token = raw
-            else:
-                print("[DEBUG] Token failed JWT decode, using app token.")
-    elif not ALLOW_ANONYMOUS_CHAT:
-        raise HTTPException(status_code=401, detail="Authentication required")
+            # Token is expired, corrupt, or not a JWT. Raise 401.
+            # This is the fix. We now raise an error instead of continuing.
+            raise auth_error
+            
+    # If we are here, one of two things happened:
+    # 1. The token was valid and user_email is now set.
+    # 2. No token was provided (token is None).
 
+    # Now we get the Langflow token (which is separate from the user token)
     env_langflow_token = os.getenv('LANGFLOW_APPLICATION_TOKEN')
-    if not langflow_api_token and env_langflow_token:
+    if env_langflow_token:
         langflow_api_token = env_langflow_token
+    else:
+        print("[ERROR] LANGFLOW_APPLICATION_TOKEN is not set in .env file!")
+        # This is a critical server misconfiguration.
+        raise HTTPException(status_code=500, detail="Chat service is not configured.")
 
-    if not user_email and not ALLOW_ANONYMOUS_CHAT:
-         raise HTTPException(status_code=401, detail="Authentication required")
+
+    if not user_email:
+        # No token was provided. Check if anonymous chat is allowed.
+        if not ALLOW_ANONYMOUS_CHAT:
+            # Anonymous chat is forbidden. Raise 401.
+             raise HTTPException(status_code=401, detail="Authentication required to chat.")
+        else:
+            # Anonymous chat is allowed. We proceed with user_email = None
+             print("[DEBUG] No token provided. Proceeding with anonymous chat.")
+
+    # --- From this point on, the logic is the same ---
 
     now = datetime.now(timezone.utc)
     convo_id = request.conversation_id
@@ -403,8 +432,6 @@ async def chat_with_ai_async(request: ChatRequest, token: Optional[str] = Depend
             # === THIS IS A NEW CHAT ===
             convo_id = str(uuid.uuid4()) # Create a new ID
             
-            # If the first message is a simple greeting, set the title to "New Chat"
-            # Otherwise, use the prompt as the title.
             title_message = request.message.lower().strip(" .!?")
             title = "New Chat"
             if title_message not in simple_greetings and len(title_message) > 4:
@@ -412,7 +439,7 @@ async def chat_with_ai_async(request: ChatRequest, token: Optional[str] = Depend
 
             new_convo_doc = {
                 "_id": convo_id,
-                "user_email": user_email,
+                "user_email": user_email, # This will be the email OR null (if anonymous)
                 "title": title,
                 "created_at": now,
                 "last_modified": now
@@ -421,41 +448,29 @@ async def chat_with_ai_async(request: ChatRequest, token: Optional[str] = Depend
         
         else:
             # === THIS IS AN EXISTING CHAT ===
-            # Check if we need to update the title from "New Chat" to something better.
             convo = await db["conversations"].find_one({"_id": convo_id})
             new_title = None
             
-            # If the title is still the generic placeholder...
             if convo and convo.get("title") == "New Chat":
-                # ...and the new message is NOT a simple greeting...
                 prompt_message = request.message.lower().strip(" .!?")
                 if prompt_message not in simple_greetings and len(prompt_message) > 10:
-                    # ...then update the title to this first real prompt!
                     new_title = request.message[:50] + ("..." if len(request.message) > 50 else "")
 
+            update_query = {"$set": {"last_modified": now}}
             if new_title:
-                # Update the title AND the timestamp
-                await db["conversations"].update_one(
-                    {"_id": convo_id},
-                    {"$set": {"title": new_title, "last_modified": now}}
-                )
-            else:
-                # Just update the timestamp
-                await db["conversations"].update_one(
-                    {"_id": convo_id},
-                    {"$set": {"last_modified": now}}
-                )
+                update_query["$set"]["title"] = new_title
 
-        # Save the user's message to the DB, linked to the conversation
-        if user_email:
-            user_message_doc = {
-                "user_email": user_email,
-                "conversation_id": convo_id,
-                "role": "user",
-                "content": request.message,
-                "timestamp": now
-            }
-            await db["messages"].insert_one(user_message_doc)
+            await db["conversations"].update_one({"_id": convo_id}, update_query)
+        
+        # Save the user message (whether anonymous or not)
+        message_doc_to_save = {
+            "user_email": user_email,
+            "conversation_id": convo_id,
+            "role": "user",
+            "content": request.message,
+            "timestamp": now
+        }
+        await db["messages"].insert_one(message_doc_to_save)
 
     except Exception as e:
         print(f"[ERROR] Failed to save message/convo to DB: {e}")
@@ -470,22 +485,30 @@ async def chat_with_ai_async(request: ChatRequest, token: Optional[str] = Depend
     asyncio.create_task(_run_langflow_task(
         task_id=task_id, 
         message=request.message, 
-        user_id=user_email, 
+        user_id=user_email, # Pass the email (or None) to the task runner
         langflow_token=langflow_api_token,
         conversation_id=convo_id
     ))
 
-    # Return BOTH the task_id (for polling) and the convo_id (for the frontend state)
     return TaskCreated(task_id=task_id, conversation_id=convo_id)
 
-
 @app.get("/chat/result/{task_id}", response_model=TaskResult)
-async def chat_result(task_id: str):
+async def get_task_result(task_id: str):
+    """
+    Returns the status of a background chat task.
+    Used by the frontend to poll for completion.
+    """
     async with _tasks_lock:
-        task = _tasks.get(task_id)
-        if not task:
+        if task_id not in _tasks:
             raise HTTPException(status_code=404, detail="Task not found")
-        return TaskResult(task_id=task_id, status=task["status"], result=task.get("result"), error=task.get("error"))
+        
+        task = _tasks[task_id]
+        return TaskResult(
+            task_id=task_id,
+            status=task["status"],
+            result=task.get("result"),
+            error=task.get("error")
+        )
     
 @app.get("/conversations")
 async def get_all_conversations(user: dict = Depends(get_current_user)):

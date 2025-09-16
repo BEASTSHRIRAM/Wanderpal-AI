@@ -5,6 +5,8 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { 
   Send, 
   Bot, 
@@ -585,7 +587,11 @@ return (
                         : 'bg-card border border-border'
                     }`}
                   >
-                    <p className="text-sm md:text-base whitespace-pre-wrap">{message.content}</p>
+                    <div className="prose prose-sm md:prose-base prose-invert">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        {message.content}
+                      </ReactMarkdown>
+                    </div>
                   </div>
                   
                   {message.agents && (
