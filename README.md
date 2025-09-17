@@ -23,6 +23,7 @@ This project is built to demonstrate a modern, asynchronous architecture for han
   - [4. Frontend (React)](#step-4-setup-the-frontend-react)
 - [How to Run](#-how-to-run-the-full-application)
 - [Configuration (.env)](#-configuration-file)
+- [Deployment Guide](#-deployment-guide)
 
 ---
 
@@ -152,28 +153,36 @@ To run Wanderpal, you must have **3 separate terminals** open and running at the
 ### 🖥️ Terminal 1: Run the AI Server (Langflow)
 ```bash
 langflow run
+```
 (Leave this running. Your AI is now live at http://127.0.0.1:7860)
 
-🖥️ Terminal 2: Run the Backend Server (FastAPI)
+### 🖥️ Terminal 2: Run the Backend Server (FastAPI)
+```bash
 # Navigate to your /backend directory
 cd path/to/your/backend
 # Activate your Python environment
 source venv/bin/activate
 # Run the FastAPI server
 uvicorn main:app --reload
+```
 (Leave this running. Your API is now live at http://127.0.0.1:8000)
 
-🖥️ Terminal 3: Run the Frontend App (React)
-
+### 🖥️ Terminal 3: Run the Frontend App (React)
+```bash
 # Navigate to your /frontend directory
 cd path/to/your/frontend
 # Run the Vite development server
 npm run dev
+```
 (This will output a URL, usually http://localhost:5173. Open this URL in your browser to use the app.)
 
-⚙️ Configuration File
-Create this file as .env inside your /backend directory and fill in all required values.
+---
 
+## ⚙️ Configuration File
+
+Create this file as `.env` inside your `/backend` directory and fill in all required values.
+
+```env
 # --- Database (Required for Login) ---
 MONGODB_URL="YOUR_MONGODB_ATLAS_CONNECTION_STRING"
 DB_NAME="wanderpal_db"
@@ -182,7 +191,7 @@ DB_NAME="wanderpal_db"
 SECRET_KEY="YOUR_OWN_LONG_RANDOM_SECRET_PASSWORD"
 
 # --- Local Langflow Connection (Get these from Step 2) ---
-LANGFLOW_BASE_URL=[http://127.0.0.1:7860](http://127.0.0.1:7860)
+LANGFLOW_BASE_URL=http://127.0.0.1:7860
 LANGFLOW_FLOW_ID=YOUR_NEW_LOCAL_FLOW_ID_FROM_BROWSER_URL
 LANGFLOW_APPLICATION_TOKEN=YOUR_NEW_LOCAL_API_KEY_FROM_LANGFLOW_SETTINGS
 LANGFLOW_TOKEN=YOUR_NEW_LOCAL_API_KEY_FROM_LANGFLOW_SETTINGS
@@ -199,3 +208,112 @@ LANGFLOW_TIMEOUT_SECONDS=600
 LANGFLOW_MAX_RETRIES=3
 LANGFLOW_MAX_TOKENS=16000
 LANGFLOW_EXPECTED_OUTPUT_TOKENS=512
+```
+
+---
+
+## 🚀 Deployment Guide
+
+### Production Deployment Options
+
+For production deployment, we recommend the following cloud platforms that offer excellent support for full-stack applications:
+
+#### Backend Deployment (FastAPI)
+**Recommended Platform: Render**
+- ✅ **Free Tier Available**: Perfect for prototyping and development
+- ✅ **Zero Configuration**: Automatic builds from GitHub repository
+- ✅ **Environment Variables**: Secure handling of API keys and secrets
+- ✅ **Health Checks**: Built-in monitoring and auto-restart
+- ✅ **Custom Domains**: Support for custom domain names
+
+**Deployment Steps for Render:**
+1. Connect your GitHub repository to Render
+2. Create a new Web Service
+3. Set build command: `pip install -r requirements.txt`
+4. Set start command: `uvicorn main:app --host 0.0.0.0 --port $PORT`
+5. Add all environment variables from your `.env` file
+6. Deploy automatically on every Git push
+
+#### Frontend Deployment (React + TypeScript)
+**Recommended Platform: Vercel**
+- ✅ **Optimized for React**: Built specifically for frontend frameworks
+- ✅ **Free Tier**: Generous limits for personal projects
+- ✅ **Global CDN**: Fast loading times worldwide
+- ✅ **Automatic Builds**: Deploy on every Git push
+- ✅ **Custom Domains**: Free SSL certificates
+
+**Deployment Steps for Vercel:**
+1. Connect your GitHub repository to Vercel
+2. Select the frontend directory (e.g., `/wanderpalcode`)
+3. Set build command: `npm run build`
+4. Set output directory: `dist`
+5. Add environment variables for API endpoints
+6. Deploy automatically on every Git push
+
+#### Alternative Deployment Platforms
+
+**Other Backend Options:**
+- **Railway**: Similar to Render with excellent developer experience
+- **Heroku**: Classic platform with robust addon ecosystem
+- **DigitalOcean App Platform**: Competitive pricing with good performance
+- **AWS App Runner**: For enterprise-scale applications
+
+**Other Frontend Options:**
+- **Netlify**: Alternative to Vercel with similar features
+- **GitHub Pages**: Free for open-source projects
+- **Firebase Hosting**: Google's hosting solution with good integration
+
+### Langflow Cloud Deployment
+For production AI services, consider migrating from local Langflow to:
+- **DataStax Astra Langflow**: Hosted Langflow service with enterprise features
+- **Langflow Cloud**: Official cloud offering with scalable infrastructure
+- **Self-hosted Langflow**: Deploy on cloud instances (AWS EC2, GCP, Azure)
+
+### Deployment Considerations
+
+#### Environment Variables for Production
+```env
+# Production Backend URL (update after backend deployment)
+VITE_API_URL=https://your-backend-app.render.com
+
+# Production Langflow (if using cloud Langflow)
+LANGFLOW_RUN_URL=https://your-langflow-cloud-endpoint.com/api/v1/run/your-flow-id
+
+# Security (use strong production secrets)
+SECRET_KEY=your-production-secret-key-min-32-characters
+```
+
+#### Security Checklist
+- [ ] Use strong, unique SECRET_KEY for production
+- [ ] Enable CORS only for your frontend domain
+- [ ] Use environment variables for all API keys
+- [ ] Enable rate limiting on API endpoints
+- [ ] Configure proper SSL/HTTPS certificates
+- [ ] Set up monitoring and logging
+- [ ] Regular security updates for dependencies
+
+#### Performance Optimization
+- [ ] Enable gzip compression on backend
+- [ ] Configure CDN for static assets
+- [ ] Implement database connection pooling
+- [ ] Add caching for frequently accessed data
+- [ ] Monitor API response times and optimize slow endpoints
+
+### Why We Chose Local Development
+Due to time constraints during development, we focused on creating a robust local development environment rather than production deployment. This approach allowed us to:
+- Rapidly iterate on features and AI agent capabilities
+- Test complex Langflow integrations without cloud dependencies
+- Maintain full control over the development environment
+- Demonstrate the complete functionality locally
+
+The architecture is designed to be deployment-ready, and the suggested cloud platforms (Render + Vercel) provide a straightforward path to production when ready.
+
+---
+
+## 🤝 Contributing
+
+We welcome contributions! Please feel free to submit issues and pull requests.
+
+## 📄 License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
