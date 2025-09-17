@@ -61,6 +61,8 @@ This project is built to demonstrate a modern, asynchronous architecture for han
     * **Agent Tools:** Groq (LLM Inference), SerpApi (Real-time Search)
 * **Other APIs:**
     * OpenTripMap API
+    * SearchAPI api key
+      
 
 ---
 
