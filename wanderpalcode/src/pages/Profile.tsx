@@ -274,7 +274,7 @@ const Profile = () => {
                       type="email"
                       value={formData.email}
                       onChange={(e) => handleInputChange('email', e.target.value)}
-                      disabled={!isEditing} // Email field is often not editable, but we'll leave it as is per your code
+                      disabled={!isEditing} 
                       className="pl-10 input-focus"
                     />
                   </div>

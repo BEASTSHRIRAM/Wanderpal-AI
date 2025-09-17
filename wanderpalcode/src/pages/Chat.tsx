@@ -86,7 +86,6 @@ const Chat = () => {
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  // NEW useEffect: This hook saves the active chat ID to storage whenever it changes.
   useEffect(() => {
     if (currentConversationId) {
       localStorage.setItem("lastActiveChatId", currentConversationId);
@@ -192,7 +191,6 @@ const Chat = () => {
     }
   }, [fetchConversations]); // Runs once on mount
 
-  // NEW: This effect runs EVERY TIME the user clicks a different chat
   useEffect(() => {
     const fetchHistory = async (convoId: string) => {
       const token = localStorage.getItem('token');
@@ -542,7 +540,7 @@ return (
         </div>
       </nav>
 
-      {/* === MAIN CHAT WINDOW (Your existing UI, wrapped in 'main') === */}
+      {}
       <main className="flex-1 flex flex-col h-screen">
         {/* Header */}
         <div className="border-b border-border bg-card/50 backdrop-blur-md sticky top-16 z-40">
@@ -560,10 +558,10 @@ return (
           </div>
         </div>
 
-        {/* Messages */}
+        {}
         <div className="flex-1 overflow-y-auto">
           <div className="max-w-4xl mx-auto px-4 py-6 space-y-6">
-            {/* ... (Your existing Messages map logic is unchanged) ... */}
+            {}
             {messages.map((message) => (
               <div
                 key={message.id}
@@ -640,7 +638,7 @@ return (
         {/* Input */}
         <div className="border-t border-border bg-card/50 backdrop-blur-md sticky bottom-0">
           <div className="max-w-4xl mx-auto px-4 py-4">
-             {/* ... (Your existing Input JSX is unchanged) ... */}
+             {}
             <div className="flex gap-3">
               <Input
                 value={inputValue}

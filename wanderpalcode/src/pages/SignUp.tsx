@@ -65,11 +65,23 @@ const SignUp = () => {
         setIsLoading(false);
         return;
       }
-      toast({
-        title: "Account created successfully!",
-        description: "Welcome to Wanderpal. You can now start exploring amazing destinations.",
-      });
-  navigate('/chat');
+      const data = await response.json();
+
+      if (data.access_token) {
+        // Save the new token to localStorage, just like on the sign-in page
+        localStorage.setItem('token', data.access_token);
+
+        toast({
+          title: "Account created successfully!",
+          description: "Welcome to Wanderpal. You are now logged in.",
+        });
+
+        // NOW navigate to the chat page
+        navigate('/chat');
+      } else {
+        // This shouldn't happen, but it's good to check
+        setError('Account created, but login failed: No token received.');
+      }
     } catch (error) {
       setError('Network error. Please try again.');
     } finally {
