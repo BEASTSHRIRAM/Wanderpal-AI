@@ -1,5 +1,5 @@
 # ✨ Wanderpal: Your AI Travel Companion
-
+## Team static, projectID = T3:29, project name = WanderPal travel advisor, Quarkeen (leader name)
 ![React](https://img.shields.io/badge/React-TypeScript-blue?style=for-the-badge&logo=react)
 ![FastAPI](https://img.shields.io/badge/FastAPI-Python-green?style=for-the-badge&logo=fastapi)
 ![AI Agent](https://img.shields.io/badge/AI_Agent-Langflow-blueviolet?style=for-the-badge)
