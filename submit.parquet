@@ -1,0 +1,66 @@
+import pandas as pd
+import numpy as np
+from datetime import datetime, timedelta
+import random
+
+# Set random seed for reproducibility
+np.random.seed(42)
+random.seed(42)
+
+# Generate sample travel data
+n_records = 1000
+
+# Sample destinations
+destinations = [
+    'Paris, France', 'Tokyo, Japan', 'New York, USA', 'London, UK', 'Rome, Italy',
+    'Barcelona, Spain', 'Amsterdam, Netherlands', 'Bangkok, Thailand', 'Sydney, Australia',
+    'Dubai, UAE', 'Singapore', 'Berlin, Germany', 'Prague, Czech Republic',
+    'Vienna, Austria', 'Budapest, Hungary', 'Istanbul, Turkey', 'Mumbai, India',
+    'Delhi, India', 'Seoul, South Korea', 'Hong Kong', 'Bali, Indonesia'
+]
+
+# Sample hotel types
+hotel_types = ['Luxury Hotel', 'Boutique Hotel', 'Business Hotel', 'Resort', 'Hostel', 'Apartment', 'Villa']
+
+# Sample user preferences
+preferences = ['Cultural Sites', 'Adventure', 'Relaxation', 'Business', 'Family', 'Romance', 'Food & Wine', 'Shopping']
+
+# Generate data
+data = {
+    'user_id': [f'user_{i:04d}' for i in range(1, n_records + 1)],
+    'destination': [random.choice(destinations) for _ in range(n_records)],
+    'hotel_name': [f'Hotel {random.choice([\"Grand\", \"Royal\", \"Plaza\", \"Palace\", \"Boutique\", \"Central\", \"Garden\"])} {random.choice([\"Plaza\", \"Suites\", \"Resort\", \"Inn\", \"Lodge\", \"Tower\", \"Court\"])}' for _ in range(n_records)],
+    'hotel_type': [random.choice(hotel_types) for _ in range(n_records)],
+    'rating': np.round(np.random.normal(4.2, 0.8, n_records).clip(1, 5), 1),
+    'price_per_night': np.round(np.random.lognormal(5.5, 0.8, n_records).clip(50, 2000), 2),
+    'check_in_date': [(datetime.now() + timedelta(days=random.randint(1, 365))).strftime('%Y-%m-%d') for _ in range(n_records)],
+    'nights': [random.randint(1, 14) for _ in range(n_records)],
+    'guests': [random.randint(1, 6) for _ in range(n_records)],
+    'user_preference': [random.choice(preferences) for _ in range(n_records)],
+    'booking_status': [random.choice(['Confirmed', 'Pending', 'Cancelled']) for _ in range(n_records)],
+    'ai_recommended': [random.choice([True, False]) for _ in range(n_records)],
+    'user_satisfaction': np.round(np.random.normal(4.0, 1.0, n_records).clip(1, 5), 1),
+    'amenities': [', '.join(random.sample(['WiFi', 'Pool', 'Spa', 'Gym', 'Restaurant', 'Bar', 'Room Service', 'Parking', 'Pet Friendly', 'Business Center'], k=random.randint(2, 6))) for _ in range(n_records)],
+    'created_at': [(datetime.now() - timedelta(days=random.randint(0, 365))).isoformat() for _ in range(n_records)]
+}
+
+# Create DataFrame
+df = pd.DataFrame(data)
+
+# Calculate total cost
+df['total_cost'] = df['price_per_night'] * df['nights']
+
+# Add some derived features for ML potential
+df['price_category'] = pd.cut(df['price_per_night'], bins=[0, 100, 250, 500, float('inf')], labels=['Budget', 'Mid-range', 'Premium', 'Luxury'])
+df['duration_category'] = pd.cut(df['nights'], bins=[0, 3, 7, 14, float('inf')], labels=['Short', 'Week', 'Extended', 'Long'])
+
+# Save as parquet
+df.to_parquet('wanderpal_travel_data.parquet', index=False)
+
+print(f'Created wanderpal_travel_data.parquet with {len(df)} records')
+print(f'Columns: {list(df.columns)}')
+print(f'File size: {len(df)} rows x {len(df.columns)} columns')
+print('\\nSample data:')
+print(df.head())
+print('\\nData types:')
+print(df.dtypes)
