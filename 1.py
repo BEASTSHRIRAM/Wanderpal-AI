@@ -19,7 +19,7 @@ for i in range(1000):
     checkout = checkin + timedelta(days=random.randint(1, 14))
     
     record = {
-        'query_id': f'WP{i+1:04d}',
+        'id': f'WP{i+1:04d}',
         'destination': random.choice(destinations),
         'checkin_date': checkin.strftime('%Y-%m-%d'),
         'checkout_date': checkout.strftime('%Y-%m-%d'),
