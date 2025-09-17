@@ -9,6 +9,8 @@
 Wanderpal is a full-stack AI travel assistant built with a React frontend, FastAPI backend, and a powerful agentic AI powered by Langflow. It allows users to plan trips, get real-time hotel and transport information, and browse trending destinations, all while managing conversations and user profiles.
 
 This project is built to demonstrate a modern, asynchronous architecture for handling long-running AI agent tasks without timeouts, using a scalable and secure backend.
+
+
 Below is the demo video of our project **Wanderpal** as a loom link
 Link:
 
